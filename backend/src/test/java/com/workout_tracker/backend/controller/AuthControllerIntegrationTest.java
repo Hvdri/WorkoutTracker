@@ -77,7 +77,7 @@ class AuthControllerIntegrationTest {
                                 {"username":"user2","email":"not-an-email","password":"password123"}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.email").exists());
+                .andExpect(jsonPath("$.errors.email").exists());
     }
 
     @Test
@@ -88,7 +88,7 @@ class AuthControllerIntegrationTest {
                                 {"username":"user3","email":"user3@test.com","password":"short"}
                                 """))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.password").exists());
+                .andExpect(jsonPath("$.errors.password").exists());
     }
 
     // ── Login ─────────────────────────────────────────────────────────────────
