@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -77,6 +78,13 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
+                // We deliberately mix path-based and method-based enforcement here:
+                //   * Path-based (this block) opens specific public reads. New GETs stay private by default.
+                //   * Method-based (@AdminOnly / @PreAuthorize on controllers) restricts mutations.
+                // Don't "consolidate" into one approach without thinking — removing either half
+                // either over-exposes new endpoints or scatters role checks into URL strings.
+                .requestMatchers(HttpMethod.GET, "/api/exercises").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/exercises/{id:\\d+}").permitAll()
                 .anyRequest().authenticated()
             )
             // Return 401 (not 403) when a request hits a protected endpoint with no token.

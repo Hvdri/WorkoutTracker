@@ -20,6 +20,10 @@ app:
     # Base64 of "test-secret-key-for-testing-only" (32 bytes = 256 bits, minimum for HMAC-SHA256)
     secret: dGVzdC1zZWNyZXQta2V5LWZvci10ZXN0aW5nLW9ubHk=
     expiration-ms: 3600000 # 1 hour
+  # Deterministic admin password for the test profile — referenced by DataInitializer
+  # so integration tests can log in as admin without env-var setup.
+  admin:
+    password: admin123
 
 logging:
   level:
