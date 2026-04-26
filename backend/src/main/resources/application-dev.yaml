@@ -15,3 +15,9 @@ logging:
   level:
     "[com.workout_tracker]": DEBUG
     "[org.springframework.security]": DEBUG
+
+# Dev-only fallback for the seeded admin password. Real deployments must set
+# ADMIN_PASSWORD via .env or the environment; this default is local-only.
+app:
+  admin:
+    password: ${ADMIN_PASSWORD:admin123}
