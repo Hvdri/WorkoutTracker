@@ -6,7 +6,13 @@ import lombok.*;
 import java.math.BigDecimal;
 
 @Entity
-@Table(name = "set_logs")
+@Table(
+    name = "set_logs",
+    uniqueConstraints = @UniqueConstraint(
+        name = "uk_setlog_exerciselog_setnumber",
+        columnNames = {"exercise_log_id", "set_number"}
+    )
+)
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class SetLog {
 

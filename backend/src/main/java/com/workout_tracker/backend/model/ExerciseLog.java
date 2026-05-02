@@ -2,6 +2,7 @@ package com.workout_tracker.backend.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +27,9 @@ public class ExerciseLog {
     @JoinColumn(name = "exercise_id", nullable = false)
     private Exercise exercise;
 
+    // Same N+1 mitigation as WorkoutLog.exerciseLogs.
     @OneToMany(mappedBy = "exerciseLog", cascade = CascadeType.ALL, orphanRemoval = true)
+    @BatchSize(size = 20)
     @Builder.Default
     private List<SetLog> sets = new ArrayList<>();
 }
