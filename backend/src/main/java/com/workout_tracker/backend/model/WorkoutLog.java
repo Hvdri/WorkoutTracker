@@ -3,6 +3,7 @@ package com.workout_tracker.backend.model;
 import com.workout_tracker.backend.model.enums.WorkoutStatus;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDate;
@@ -44,7 +45,10 @@ public class WorkoutLog {
     @JoinColumn(name = "template_id", nullable = false)
     private WorkoutTemplate template;
 
+    // BatchSize batches lazy collection fetches across loaded WorkoutLogs in the same
+    // session — turns N+1 into ~1 + ceil(N/20) on /api/logs history pages.
     @OneToMany(mappedBy = "workoutLog", cascade = CascadeType.ALL, orphanRemoval = true)
+    @BatchSize(size = 20)
     @Builder.Default
     private List<ExerciseLog> exerciseLogs = new ArrayList<>();
 }
