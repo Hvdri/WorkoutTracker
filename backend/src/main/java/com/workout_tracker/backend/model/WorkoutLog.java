@@ -11,8 +11,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+// Class-level @BatchSize applies whenever Hibernate batches uninitialized WorkoutLog
+// proxies — most importantly when the feed page walks each Post's workoutLog reference.
+// Without it that chain is N+1; with it the lazy fetches collapse into one IN() query.
 @Entity
 @Table(name = "workout_logs")
+@BatchSize(size = 20)
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class WorkoutLog {
 
