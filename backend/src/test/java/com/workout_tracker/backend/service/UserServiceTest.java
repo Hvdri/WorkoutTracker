@@ -37,9 +37,10 @@ class UserServiceTest {
     }
 
     @Test
-    void updateMyProfile_patchSemantics_onlyOverwritesNonNullFields() {
-        // Existing profile values should survive null fields in the request — only
-        // explicitly-supplied fields update.
+    void updateMyProfile_putSemantics_overwritesEveryField_nullClears() {
+        // PUT-style: every field on the request is written through. null clears the
+        // stored value so users can reset bio/goal/height/etc. via the UI. The frontend
+        // always submits the full form, so unchanged fields arrive at current values.
         User user = userWithId(1L);
         UserProfile profile = new UserProfile(user);
         profile.setBio("old bio");
@@ -51,17 +52,19 @@ class UserServiceTest {
 
         when(userProfileRepository.findByUserId(1L)).thenReturn(Optional.of(profile));
 
+        // Sets bio + weight, clears fitnessGoal + height + gender.
         UserProfileUpdateRequest req = new UserProfileUpdateRequest(
                 "new bio", null, null, 80.0, null);
         UserProfileDto dto = userService.updateMyProfile(user, req);
 
         assertThat(profile.getBio()).isEqualTo("new bio");
-        assertThat(profile.getFitnessGoal()).isEqualTo("old goal");
-        assertThat(profile.getHeightCm()).isEqualTo(180.0);
+        assertThat(profile.getFitnessGoal()).isNull();
+        assertThat(profile.getHeightCm()).isNull();
         assertThat(profile.getWeightKg()).isEqualTo(80.0);
-        assertThat(profile.getGender()).isEqualTo(Gender.MALE);
+        assertThat(profile.getGender()).isNull();
         assertThat(dto.bio()).isEqualTo("new bio");
         assertThat(dto.weightKg()).isEqualTo(80.0);
+        assertThat(dto.fitnessGoal()).isNull();
     }
 
     @Test
