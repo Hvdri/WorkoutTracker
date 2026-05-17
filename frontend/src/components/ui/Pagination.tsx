@@ -8,12 +8,16 @@ interface Props {
 }
 
 export function Pagination({ page, totalPages, totalElements, onPageChange }: Props) {
-  if (totalPages <= 1) return null
+  // Always render the strip so users see "1 of 1 · N total" instead of wondering
+  // whether more pages are hidden. Empty results read as "No results" — saying
+  // "Page 1 of 1 · 0 total" is confusing.
+  const summary =
+    totalElements === 0
+      ? 'No results'
+      : `Page ${page + 1} of ${Math.max(totalPages, 1)} · ${totalElements} total`
   return (
     <div className="flex items-center justify-between mt-4 text-sm text-gray-600">
-      <span>
-        Page {page + 1} of {totalPages} · {totalElements} total
-      </span>
+      <span>{summary}</span>
       <div className="flex gap-2">
         <Button
           variant="secondary"
