@@ -20,7 +20,3 @@ export function extractFieldErrors(err: unknown): Record<string, string> | null 
   return data?.errors ?? null
 }
 
-export function extractStatus(err: unknown): number | null {
-  if (axios.isAxiosError(err) && err.response) return err.response.status
-  return null
-}
