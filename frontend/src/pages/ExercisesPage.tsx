@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Input, Select } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -17,9 +17,6 @@ export function ExercisesPage() {
   const [muscleGroup, setMuscleGroup] = useState<MuscleGroup | ''>('')
   const [page, setPage] = useState(0)
   const debouncedSearch = useDebounce(search, 300)
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setPage(0) }, [debouncedSearch, muscleGroup])
 
   const { data, isLoading, error } = useQuery(
     () => listExercises({
@@ -46,13 +43,13 @@ export function ExercisesPage() {
           label="Search"
           placeholder="e.g. bench press"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => { setSearch(e.target.value); setPage(0) }}
         />
         <Select
           id="muscleGroup"
           label="Muscle group"
           value={muscleGroup}
-          onChange={e => setMuscleGroup(e.target.value as MuscleGroup | '')}
+          onChange={e => { setMuscleGroup(e.target.value as MuscleGroup | ''); setPage(0) }}
         >
           <option value="">All</option>
           {MUSCLE_GROUPS.map(g => (

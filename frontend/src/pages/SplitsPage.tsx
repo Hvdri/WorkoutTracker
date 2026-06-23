@@ -41,7 +41,7 @@ export function SplitsPage() {
       reload()
     } catch (err2) {
       const fields = extractFieldErrors(err2)
-      if (fields?.name) setNameError(fields.name)
+      if (fields?.name != null) setNameError(fields.name)
       setSubmitError(extractErrorMessage(err2, 'Failed to create split.'))
     } finally {
       setIsSubmitting(false)

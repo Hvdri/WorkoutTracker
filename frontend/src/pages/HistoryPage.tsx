@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router'
 import { Select } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
@@ -26,9 +26,6 @@ export function HistoryPage() {
   const [page, setPage] = useState(0)
   const [sort, setSort] = useState('date,desc')
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setPage(0) }, [sort])
-
   const { data, isLoading, error } = useQuery(
     () => listLogs({ page, size: PAGE_SIZE, sort }),
     [page, sort],
@@ -42,7 +39,7 @@ export function HistoryPage() {
           <h1 className="text-2xl font-bold text-gray-800">Workout history</h1>
           <p className="text-sm text-gray-500">Every workout you've logged.</p>
         </div>
-        <Link to="/log/new"><Button>+ Log workout</Button></Link>
+        <Link to="/logs/new"><Button>+ Log workout</Button></Link>
       </div>
 
       <div className="bg-white rounded-2xl shadow p-4">
@@ -50,7 +47,7 @@ export function HistoryPage() {
           id="sort"
           label="Sort by"
           value={sort}
-          onChange={e => setSort(e.target.value)}
+          onChange={e => { setSort(e.target.value); setPage(0) }}
         >
           {SORT_OPTIONS.map(o => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -65,7 +62,7 @@ export function HistoryPage() {
         <EmptyState
           title="No workouts yet"
           description="Log your first workout to start building history."
-          action={<Link to="/log/new"><Button>+ Log workout</Button></Link>}
+          action={<Link to="/logs/new"><Button>+ Log workout</Button></Link>}
         />
       )}
 

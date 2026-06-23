@@ -3,7 +3,7 @@ import { Button } from '../ui/Button'
 import { ErrorBanner } from '../ui/ErrorBanner'
 import type { SetLogDto } from '../../types/workout'
 import { deleteSet, updateSet } from '../../api/setLogs'
-import { extractErrorMessage } from '../../utils/errors'
+import { extractErrorMessage, extractFieldErrors } from '../../utils/errors'
 import { rangeNumber } from '../../utils/validation'
 
 interface Props {
@@ -14,19 +14,28 @@ interface Props {
   onChanged: () => void
 }
 
+// Form-state keys match the backend DTO field names (weightKg, reps, rpe) so the
+// server's per-field error map can be merged with a single spread — no name-by-name
+// translation that future-you would need to revisit if a DTO field is renamed.
+interface FieldErrors {
+  weightKg?: string
+  reps?: string
+  rpe?: string
+}
+
 export function SetLogRow({ logId, exerciseLogId, set, readOnly = false, onChanged }: Props) {
   const [editing, setEditing] = useState(false)
-  const [weight, setWeight] = useState(String(set.weightKg))
+  const [weightKg, setWeightKg] = useState(String(set.weightKg))
   const [reps, setReps] = useState(String(set.reps))
   const [rpe, setRpe] = useState(set.rpe == null ? '' : String(set.rpe))
-  const [errors, setErrors] = useState<{ weight?: string; reps?: string; rpe?: string }>({})
+  const [errors, setErrors] = useState<FieldErrors>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const isBusy = isSubmitting || isDeleting
 
   function reset() {
-    setWeight(String(set.weightKg))
+    setWeightKg(String(set.weightKg))
     setReps(String(set.reps))
     setRpe(set.rpe == null ? '' : String(set.rpe))
     setErrors({})
@@ -35,11 +44,11 @@ export function SetLogRow({ logId, exerciseLogId, set, readOnly = false, onChang
 
   async function handleSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const w = Number(weight)
+    const w = Number(weightKg)
     const r = Number(reps)
     const rp = rpe === '' ? null : Number(rpe)
-    const next: typeof errors = {}
-    if (Number.isNaN(w) || w < 0) next.weight = 'Weight must be ≥ 0'
+    const next: FieldErrors = {}
+    if (Number.isNaN(w) || w < 0) next.weightKg = 'Weight must be ≥ 0'
     const repsErr = rangeNumber(r, 1, 100, 'Reps')
     if (repsErr) next.reps = repsErr
     if (rp != null) {
@@ -55,6 +64,16 @@ export function SetLogRow({ logId, exerciseLogId, set, readOnly = false, onChang
       setEditing(false)
       onChanged()
     } catch (err) {
+      const fields = extractFieldErrors(err)
+      if (fields) {
+        // Keys match backend → single spread, no manual mapping. Use != null so an
+        // empty-string error message (rare but legal) is still applied.
+        const merged: FieldErrors = { ...errors }
+        if (fields.weightKg != null) merged.weightKg = fields.weightKg
+        if (fields.reps != null) merged.reps = fields.reps
+        if (fields.rpe != null) merged.rpe = fields.rpe
+        setErrors(merged)
+      }
       setSubmitError(extractErrorMessage(err, 'Failed to save set.'))
     } finally {
       setIsSubmitting(false)
@@ -113,11 +132,11 @@ export function SetLogRow({ logId, exerciseLogId, set, readOnly = false, onChang
           type="number"
           step="0.5"
           min={0}
-          value={weight}
-          onChange={e => setWeight(e.target.value)}
+          value={weightKg}
+          onChange={e => setWeightKg(e.target.value)}
           className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
         />
-        {errors.weight && <p className="text-xs text-red-600">{errors.weight}</p>}
+        {errors.weightKg && <p className="text-xs text-red-600">{errors.weightKg}</p>}
       </div>
       <div className="w-20">
         <label className="block text-xs text-gray-500">Reps</label>

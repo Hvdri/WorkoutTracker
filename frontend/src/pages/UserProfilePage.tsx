@@ -33,7 +33,18 @@ export function UserProfilePage() {
 
   const [posts, setPosts] = useState<PageResponse<PostDto> | null>(null)
   const [postsError, setPostsError] = useState<string | null>(null)
-  const [page, setPage] = useState(0)
+  // Page index is bound to the user it belongs to: when userId changes (navigating
+  // from /users/5 to /users/7), `page` evaluates to 0 in the same render — without
+  // a setState-in-effect to reset it. Avoids the "user 7 fetched at page 2" bug
+  // where the response is empty and the UI shows "No public posts yet".
+  const [pageByUser, setPageByUser] = useState<{ userId: number; page: number }>({
+    userId,
+    page: 0,
+  })
+  const page = pageByUser.userId === userId ? pageByUser.page : 0
+  function setPage(p: number) {
+    setPageByUser({ userId, page: p })
+  }
 
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

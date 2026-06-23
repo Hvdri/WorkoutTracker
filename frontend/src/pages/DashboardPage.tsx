@@ -61,7 +61,7 @@ export function DashboardPage() {
         <section className="bg-white rounded-2xl shadow p-4">
           <h2 className="font-semibold text-gray-800 mb-2">Quick action</h2>
           <p className="text-sm text-gray-600 mb-3">Start logging today's workout.</p>
-          <Link to="/log/new"><Button>Start today's workout</Button></Link>
+          <Link to="/logs/new"><Button>Start today's workout</Button></Link>
         </section>
       </div>
 

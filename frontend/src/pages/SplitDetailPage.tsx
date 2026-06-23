@@ -8,6 +8,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { MuscleBadge, Pill } from '../components/ui/Badge'
 import { ExercisePickerModal } from '../components/workout/ExercisePickerModal'
+import { TargetsModal } from '../components/workout/TargetsModal'
 import { getSplitById } from '../api/splits'
 import {
   addExerciseToTemplate,
@@ -17,7 +18,7 @@ import {
 } from '../api/templates'
 import { useQuery } from '../hooks/useQuery'
 import type { ExerciseDto, WorkoutTemplateDto } from '../types/workout'
-import { extractErrorMessage } from '../utils/errors'
+import { extractErrorMessage, extractFieldErrors } from '../utils/errors'
 import { maxLength, rangeNumber, required } from '../utils/validation'
 
 export function SplitDetailPage() {
@@ -110,8 +111,9 @@ function TemplateCard({
   onChanged: () => void
 }) {
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [pendingExercise, setPendingExercise] = useState<ExerciseDto | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [isAdding, setIsAdding] = useState(false)
+  const [targetsError, setTargetsError] = useState<string | null>(null)
 
   async function handleDeleteTemplate() {
     if (!window.confirm(`Delete template "${template.name}"?`)) return
@@ -123,21 +125,29 @@ function TemplateCard({
     }
   }
 
-  async function handlePickExercise(exercise: ExerciseDto) {
-    setIsAdding(true)
+  // Two-step: picker emits the chosen exercise; we hold it in pendingExercise and
+  // open TargetsModal so the user can set optional targetSets/targetReps before
+  // we actually POST.
+  function handlePickExercise(exercise: ExerciseDto) {
+    setPickerOpen(false)
+    setTargetsError(null)
+    setPendingExercise(exercise)
+  }
+
+  async function handleConfirmTargets(targets: { targetSets: number | null; targetReps: number | null }) {
+    if (!pendingExercise) return
+    setTargetsError(null)
     try {
       await addExerciseToTemplate(splitId, template.id, {
-        exerciseId: exercise.id,
-        targetSets: null,
-        targetReps: null,
+        exerciseId: pendingExercise.id,
+        targetSets: targets.targetSets,
+        targetReps: targets.targetReps,
         orderIndex: template.exercises.length,
       })
-      setPickerOpen(false)
+      setPendingExercise(null)
       onChanged()
     } catch (err) {
-      setActionError(extractErrorMessage(err, 'Failed to add exercise.'))
-    } finally {
-      setIsAdding(false)
+      setTargetsError(extractErrorMessage(err, 'Failed to add exercise.'))
     }
   }
 
@@ -159,7 +169,6 @@ function TemplateCard({
           <Button
             size="sm"
             variant="secondary"
-            disabled={isAdding}
             onClick={() => setPickerOpen(true)}
           >
             + Add exercise
@@ -206,6 +215,14 @@ function TemplateCard({
         onClose={() => setPickerOpen(false)}
         onPick={handlePickExercise}
         excludeIds={template.exercises.map(e => e.exerciseId)}
+      />
+
+      <TargetsModal
+        open={pendingExercise != null}
+        exercise={pendingExercise}
+        onCancel={() => { setPendingExercise(null); setTargetsError(null) }}
+        onConfirm={handleConfirmTargets}
+        submitError={targetsError}
       />
     </section>
   )
@@ -255,6 +272,9 @@ function AddTemplateModal({
       onCreated()
       onClose()
     } catch (err) {
+      const fields = extractFieldErrors(err)
+      if (fields?.name != null) setNameError(fields.name)
+      if (fields?.orderIndex != null) setOrderError(fields.orderIndex)
       setSubmitError(extractErrorMessage(err, 'Failed to create template.'))
     } finally {
       setIsSubmitting(false)

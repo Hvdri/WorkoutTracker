@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { extractErrorMessage } from '../utils/errors'
 
 interface QueryResult<T> {
@@ -10,15 +10,15 @@ interface QueryResult<T> {
 
 // Tiny data-fetching hook. Refetches whenever any dep changes; `reload()` forces
 // a refetch for mutations. Stale data stays visible until the new response lands;
-// `isLoading` stays true until the first successful response so callers can show
-// a spinner on initial load AND on every refetch (including dep-change and reload).
+// `isLoading` starts true and transitions to false after the first response
+// (success or error), so callers can show a spinner on initial load AND on every
+// refetch.
 //
-// Why not React Query? This is a university project — one tiny hook is enough.
-// `setIsLoading(true)` runs synchronously inside the effect, which the new
-// `react-hooks/set-state-in-effect` rule flags. We accept the extra render here
-// in exchange for a working "loading on refetch" UX; the alternatives
-// (useTransition, useDeferredValue, isFetching/isLoading split) all add complexity
-// that isn't worth it at this scale.
+// The `react-hooks/exhaustive-deps` disable below is intentional: `fn` and
+// `fallbackError` are excluded because callers pass inline arrows whose identity
+// changes every render. The explicit `deps` array is the contract — enumerate
+// every value `fn` closes over so refetches actually fire when those values
+// change. Same trade-off React Query / SWR make.
 export function useQuery<T>(
   fn: () => Promise<T>,
   deps: unknown[],
@@ -45,15 +45,12 @@ export function useQuery<T>(
         if (!cancelled) setIsLoading(false)
       })
     return () => { cancelled = true }
-    // `fn` is intentionally excluded — callers pass inline arrows so its identity
-    // changes every render; deps array is the explicit refetch trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, reloadKey])
 
-  return {
-    data,
-    isLoading,
-    error,
-    reload: () => setReloadKey(k => k + 1),
-  }
+  // Stable reload identity so callers can include it in their own deps without
+  // triggering needless re-runs.
+  const reload = useCallback(() => setReloadKey(k => k + 1), [])
+
+  return { data, isLoading, error, reload }
 }

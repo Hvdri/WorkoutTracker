@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
+import axios from 'axios'
 import { Button } from '../components/ui/Button'
 import { Input, Select, TextArea } from '../components/ui/Input'
 import { LoadingSpinner } from '../components/ui/LoadingSpinner'
@@ -10,7 +11,7 @@ import { getActiveSplit } from '../api/splits'
 import { createLog, deleteLog } from '../api/workoutLogs'
 import { addExerciseLog } from '../api/exerciseLogs'
 import type { WorkoutSplitDto, WorkoutTemplateDto } from '../types/workout'
-import { extractErrorMessage } from '../utils/errors'
+import { extractErrorMessage, extractFieldErrors } from '../utils/errors'
 import { maxLength, notFutureDate, todayIso } from '../utils/validation'
 
 export function NewWorkoutPage() {
@@ -66,6 +67,7 @@ export function NewWorkoutPage() {
     setIsSubmitting(true)
 
     let createdLogId: number | null = null
+    const abort = new AbortController()
     try {
       const log = await createLog({
         date,
@@ -75,19 +77,41 @@ export function NewWorkoutPage() {
       })
       createdLogId = log.id
 
-      // Pre-populate exercise logs from the template, in order.
-      // Sequential to keep ordering stable; the lists are short (typically <10).
+      // Pre-populate exercise logs from the template in parallel — sequential awaits
+      // would make a 200ms-RTT mobile session wait ~Nx that for an 8-exercise day.
+      // Ordering note: ExerciseLog has no orderIndex, so the displayed order in the
+      // log detail page is by id; concurrent inserts may not strictly mirror
+      // template orderIndex. Acceptable here; a bulk endpoint would fix it cleanly.
+      // The shared signal lets the rollback path cancel any siblings still in flight
+      // when one of them rejects — otherwise they keep going and 404 against the
+      // log we're about to delete.
       if (selectedTemplate) {
         const exercises = [...selectedTemplate.exercises].sort(
           (a, b) => a.orderIndex - b.orderIndex,
         )
-        for (const ex of exercises) {
-          await addExerciseLog(log.id, { exerciseId: ex.exerciseId, notes: null })
-        }
+        // Per-promise .catch swallows cancellation rejections so they don't surface
+        // as "Uncaught (in promise) CanceledError" in the dev console when the
+        // rollback path aborts in-flight siblings. Real failures still propagate
+        // to Promise.all, which becomes the first rejection we handle below.
+        await Promise.all(
+          exercises.map(ex =>
+            addExerciseLog(
+              log.id,
+              { exerciseId: ex.exerciseId, notes: null },
+              { signal: abort.signal },
+            ).catch(err => {
+              if (axios.isCancel(err)) return null
+              throw err
+            }),
+          ),
+        )
       }
 
       navigate(`/logs/${log.id}`)
     } catch (err) {
+      // Cancel any addExerciseLog siblings still pending so they don't 404 after
+      // the deleteLog below cascades them away.
+      abort.abort()
       // Roll back the partially-created log so the user doesn't end up with an empty
       // entry in their history. If rollback fails (network gone, etc.), navigate to
       // the detail page anyway so they can finish or delete it manually instead of
@@ -99,6 +123,16 @@ export function NewWorkoutPage() {
           navigate(`/logs/${createdLogId}`)
           return
         }
+      }
+      const fields = extractFieldErrors(err)
+      if (fields) {
+        setErrors(prev => {
+          const next = { ...prev }
+          if (fields.templateId != null) next.templateId = fields.templateId
+          if (fields.date != null) next.date = fields.date
+          if (fields.notes != null) next.notes = fields.notes
+          return next
+        })
       }
       setSubmitError(extractErrorMessage(err, 'Failed to start workout.'))
       setIsSubmitting(false)

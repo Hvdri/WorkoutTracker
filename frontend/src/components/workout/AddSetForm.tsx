@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Button } from '../ui/Button'
 import { ErrorBanner } from '../ui/ErrorBanner'
 import { addSet } from '../../api/setLogs'
-import { extractErrorMessage } from '../../utils/errors'
+import { extractErrorMessage, extractFieldErrors } from '../../utils/errors'
 import { rangeNumber } from '../../utils/validation'
 
 interface Props {
@@ -12,21 +12,30 @@ interface Props {
   onAdded: () => void
 }
 
+// Form-state keys match the backend DTO field names so the server's per-field
+// error map can be merged without name-by-name translation.
+interface FieldErrors {
+  weightKg?: string
+  reps?: string
+  rpe?: string
+  setNumber?: string
+}
+
 export function AddSetForm({ logId, exerciseLogId, nextSetNumber, onAdded }: Props) {
-  const [weight, setWeight] = useState('')
+  const [weightKg, setWeightKg] = useState('')
   const [reps, setReps] = useState('')
   const [rpe, setRpe] = useState('')
-  const [errors, setErrors] = useState<{ weight?: string; reps?: string; rpe?: string }>({})
+  const [errors, setErrors] = useState<FieldErrors>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const w = Number(weight)
+    const w = Number(weightKg)
     const r = Number(reps)
     const rp = rpe === '' ? null : Number(rpe)
-    const next: typeof errors = {}
-    if (weight === '' || Number.isNaN(w) || w < 0) next.weight = 'Weight must be ≥ 0'
+    const next: FieldErrors = {}
+    if (weightKg === '' || Number.isNaN(w) || w < 0) next.weightKg = 'Weight must be ≥ 0'
     if (reps === '') next.reps = 'Reps required'
     else {
       const e2 = rangeNumber(r, 1, 100, 'Reps')
@@ -48,11 +57,20 @@ export function AddSetForm({ logId, exerciseLogId, nextSetNumber, onAdded }: Pro
         reps: r,
         rpe: rp,
       })
-      setWeight('')
+      setWeightKg('')
       setReps('')
       setRpe('')
       onAdded()
     } catch (err) {
+      const fields = extractFieldErrors(err)
+      if (fields) {
+        const merged: FieldErrors = { ...errors }
+        if (fields.weightKg != null) merged.weightKg = fields.weightKg
+        if (fields.reps != null) merged.reps = fields.reps
+        if (fields.rpe != null) merged.rpe = fields.rpe
+        if (fields.setNumber != null) merged.setNumber = fields.setNumber
+        setErrors(merged)
+      }
       setSubmitError(extractErrorMessage(err, 'Failed to add set.'))
     } finally {
       setIsSubmitting(false)
@@ -68,12 +86,12 @@ export function AddSetForm({ logId, exerciseLogId, nextSetNumber, onAdded }: Pro
           type="number"
           step="0.5"
           min={0}
-          value={weight}
-          onChange={e => setWeight(e.target.value)}
+          value={weightKg}
+          onChange={e => setWeightKg(e.target.value)}
           placeholder="80"
           className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
         />
-        {errors.weight && <p className="text-xs text-red-600">{errors.weight}</p>}
+        {errors.weightKg && <p className="text-xs text-red-600">{errors.weightKg}</p>}
       </div>
       <div className="w-20">
         <label className="block text-xs text-gray-500">Reps</label>
@@ -105,6 +123,7 @@ export function AddSetForm({ logId, exerciseLogId, nextSetNumber, onAdded }: Pro
         {isSubmitting ? 'Adding…' : '+ Add set'}
       </Button>
       <div className="basis-full">
+        {errors.setNumber && <p className="text-xs text-red-600">{errors.setNumber}</p>}
         <ErrorBanner message={submitError} />
       </div>
     </form>

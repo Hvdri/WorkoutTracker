@@ -1,5 +1,5 @@
 import { createBrowserRouter, RouterProvider } from 'react-router'
-import { AuthProvider } from './context/AuthContext'
+import { AuthProvider } from './context/AuthProvider'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminRoute } from './components/AdminRoute'
 import { AppLayout } from './components/layout/AppLayout'
@@ -20,8 +20,11 @@ import { NotFoundPage } from './pages/NotFoundPage'
 import { ErrorPage } from './pages/ErrorPage'
 
 const router = createBrowserRouter([
-  { path: '/login', element: <LoginPage />, errorElement: <ErrorPage /> },
-  { path: '/register', element: <RegisterPage />, errorElement: <ErrorPage /> },
+  // /login and /register render standalone (no AppLayout); errors there fall through
+  // to the router's default. ErrorPage is compact-by-design for the AppLayout chrome,
+  // so we don't want it rendered without that chrome.
+  { path: '/login', element: <LoginPage /> },
+  { path: '/register', element: <RegisterPage /> },
   {
     path: '/',
     element: (
@@ -29,25 +32,33 @@ const router = createBrowserRouter([
         <AppLayout />
       </ProtectedRoute>
     ),
-    errorElement: <ErrorPage />,
     children: [
-      { index: true, element: <DashboardPage /> },
-      { path: 'exercises', element: <ExercisesPage /> },
-      { path: 'splits', element: <SplitsPage /> },
-      { path: 'splits/:id', element: <SplitDetailPage /> },
-      { path: 'profile/me', element: <ProfilePage /> },
-      { path: 'log/new', element: <NewWorkoutPage /> },
-      { path: 'logs/:id', element: <LogDetailPage /> },
-      { path: 'history', element: <HistoryPage /> },
-      { path: 'feed', element: <FeedPage /> },
-      { path: 'users/:id', element: <UserProfilePage /> },
+      // Pathless wrapper so the errorElement renders inside <AppLayout>'s <Outlet/>
+      // (the navbar stays visible on crashes). React Router replaces the entire
+      // route subtree when an error fires, so attaching errorElement to a child
+      // route — not to the layout route — is what keeps the chrome on screen.
       {
-        path: 'admin/exercises',
-        element: (
-          <AdminRoute>
-            <AdminExercisesPage />
-          </AdminRoute>
-        ),
+        errorElement: <ErrorPage />,
+        children: [
+          { index: true, element: <DashboardPage /> },
+          { path: 'exercises', element: <ExercisesPage /> },
+          { path: 'splits', element: <SplitsPage /> },
+          { path: 'splits/:id', element: <SplitDetailPage /> },
+          { path: 'profile/me', element: <ProfilePage /> },
+          { path: 'logs/new', element: <NewWorkoutPage /> },
+          { path: 'logs/:id', element: <LogDetailPage /> },
+          { path: 'history', element: <HistoryPage /> },
+          { path: 'feed', element: <FeedPage /> },
+          { path: 'users/:id', element: <UserProfilePage /> },
+          {
+            path: 'admin/exercises',
+            element: (
+              <AdminRoute>
+                <AdminExercisesPage />
+              </AdminRoute>
+            ),
+          },
+        ],
       },
     ],
   },

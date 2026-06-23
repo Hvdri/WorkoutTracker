@@ -33,9 +33,6 @@ export function ExercisePickerModal({ open, onClose, onPick, excludeIds = [] }: 
   const [error, setError] = useState<string | null>(null)
   const debouncedSearch = useDebounce(search, 300)
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setPage(0) }, [debouncedSearch, muscleGroup])
-
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -74,14 +71,14 @@ export function ExercisePickerModal({ open, onClose, onPick, excludeIds = [] }: 
             id="picker-search"
             label="Search"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setPage(0) }}
             placeholder="bench press"
           />
           <Select
             id="picker-muscle"
             label="Muscle group"
             value={muscleGroup}
-            onChange={e => setMuscleGroup(e.target.value as MuscleGroup | '')}
+            onChange={e => { setMuscleGroup(e.target.value as MuscleGroup | ''); setPage(0) }}
           >
             <option value="">All</option>
             {MUSCLE_GROUPS.map(g => (

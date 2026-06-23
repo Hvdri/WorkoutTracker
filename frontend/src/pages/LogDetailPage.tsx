@@ -14,7 +14,7 @@ import { addExerciseLog, deleteExerciseLog } from '../api/exerciseLogs'
 import { createPost } from '../api/posts'
 import { useQuery } from '../hooks/useQuery'
 import type { ExerciseDto, WorkoutLogDto } from '../types/workout'
-import { extractErrorMessage } from '../utils/errors'
+import { extractErrorMessage, extractFieldErrors } from '../utils/errors'
 import { maxLength } from '../utils/validation'
 
 export function LogDetailPage() {
@@ -33,16 +33,11 @@ export function LogDetailPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [editingMeta, setEditingMeta] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
-
-  // If the log flips to COMPLETED while the user has the meta editor open
-  // (e.g. they completed it from another control), drop edit mode so the
-  // completed view renders instead of stale edit fields.
-  useEffect(() => {
-    if (log?.status === 'COMPLETED' && editingMeta) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setEditingMeta(false)
-    }
-  }, [log?.status, editingMeta])
+  // Local "already shared in this session" flag. Backend rule forbids duplicate posts
+  // per log, so once the modal POSTs successfully we hide the Share button to prevent
+  // a follow-up click that would 409. Resets on full page reload (limitation: the
+  // WorkoutLogDto doesn't carry a `postId`, so we can't make this durable).
+  const [postCreated, setPostCreated] = useState(false)
 
   async function handleAddExercise(exercise: ExerciseDto) {
     setActionError(null)
@@ -121,18 +116,38 @@ export function LogDetailPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">{log.date}</p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          {/* Top-level actions are disabled while the meta editor is open: clicking
+              Mark complete or Delete would unmount MetaSection and silently throw
+              away whatever the user just typed. Force them to Save or Cancel first. */}
           {!isCompleted && (
-            <Button variant="primary" onClick={handleComplete}>
+            <Button
+              variant="primary"
+              onClick={handleComplete}
+              disabled={editingMeta}
+              title={editingMeta ? 'Save or cancel your notes first' : undefined}
+            >
               Mark complete
             </Button>
           )}
-          {isCompleted && (
+          {isCompleted && !postCreated && (
             <Button variant="primary" onClick={() => setShareOpen(true)}>
               Share as post
             </Button>
           )}
-          <Button variant="danger" onClick={handleDelete}>Delete</Button>
+          {isCompleted && postCreated && (
+            <span className="inline-flex items-center rounded-full bg-green-100 text-green-700 px-3 py-1 text-xs font-medium">
+              Posted ✓
+            </span>
+          )}
+          <Button
+            variant="danger"
+            onClick={handleDelete}
+            disabled={editingMeta}
+            title={editingMeta ? 'Save or cancel your notes first' : undefined}
+          >
+            Delete
+          </Button>
         </div>
       </div>
 
@@ -222,6 +237,7 @@ export function LogDetailPage() {
       <ShareAsPostModal
         open={shareOpen}
         onClose={() => setShareOpen(false)}
+        onPosted={() => setPostCreated(true)}
         logId={logId}
         templateName={log.templateName}
       />
@@ -249,14 +265,16 @@ function MetaSection({
   const [notesError, setNotesError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  useEffect(() => {
-    if (editing) {
-      setPhotoUrl(log.photoUrl ?? '')
-      setNotes(log.notes ?? '')
-      setError(null)
-      setNotesError(null)
-    }
-  }, [editing, log])
+  // Seed local state on Edit click only — not via a useEffect on [log] — so that
+  // a mid-edit reload (e.g. user clicks "Mark complete" elsewhere on the page,
+  // triggering a refetch of `log`) doesn't wipe what the user just typed.
+  function startEdit() {
+    setPhotoUrl(log.photoUrl ?? '')
+    setNotes(log.notes ?? '')
+    setError(null)
+    setNotesError(null)
+    onEdit()
+  }
 
   async function handleSave(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -273,13 +291,18 @@ function MetaSection({
       onClose()
       onSaved()
     } catch (err) {
+      const fields = extractFieldErrors(err)
+      if (fields?.notes != null) setNotesError(fields.notes)
       setError(extractErrorMessage(err, 'Failed to save changes.'))
     } finally {
       setIsSubmitting(false)
     }
   }
 
-  if (editing && !isCompleted) {
+  // The parent already passes editing={editingMeta && !isCompleted}, and B2's fix
+  // disables Mark complete while editingMeta is true, so isCompleted can't flip
+  // mid-edit. The `editing` prop alone is sufficient here.
+  if (editing) {
     return (
       <form onSubmit={handleSave} className="bg-white rounded-2xl shadow p-4 space-y-3">
         <Input
@@ -316,7 +339,7 @@ function MetaSection({
       <div className="flex items-center justify-between">
         <span className="text-xs uppercase tracking-wide text-gray-400">Notes & photo</span>
         {!isCompleted && (
-          <Button size="sm" variant="ghost" onClick={onEdit}>Edit</Button>
+          <Button size="sm" variant="ghost" onClick={startEdit}>Edit</Button>
         )}
       </div>
       {log.notes ? (
@@ -336,11 +359,13 @@ function MetaSection({
 function ShareAsPostModal({
   open,
   onClose,
+  onPosted,
   logId,
   templateName,
 }: {
   open: boolean
   onClose: () => void
+  onPosted: () => void
   logId: number
   templateName: string
 }) {
@@ -366,8 +391,11 @@ function ShareAsPostModal({
     setIsSubmitting(true)
     try {
       await createPost({ workoutLogId: logId, caption: caption.trim() || null })
+      onPosted()
       onClose()
     } catch (err) {
+      const fields = extractFieldErrors(err)
+      if (fields?.caption != null) setCaptionError(fields.caption)
       setError(extractErrorMessage(err, 'Failed to create post.'))
     } finally {
       setIsSubmitting(false)

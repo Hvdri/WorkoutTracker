@@ -12,8 +12,13 @@ export async function listExerciseLogs(logId: number): Promise<ExerciseLogDto[]>
 export async function addExerciseLog(
   logId: number,
   data: CreateExerciseLogRequest,
+  options: { signal?: AbortSignal } = {},
 ): Promise<ExerciseLogDto> {
-  const response = await apiClient.post<ExerciseLogDto>(`/logs/${logId}/exercises`, data)
+  const response = await apiClient.post<ExerciseLogDto>(
+    `/logs/${logId}/exercises`,
+    data,
+    { signal: options.signal },
+  )
   return response.data
 }
 
