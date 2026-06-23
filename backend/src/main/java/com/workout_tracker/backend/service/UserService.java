@@ -40,9 +40,11 @@ public class UserService {
         return SocialMapper.toUserProfileDto(loaded);
     }
 
-    // PATCH-style update: only fields present (non-null) on the request overwrite
-    // existing values. Validation ranges (height 50–300, weight 20–500) live on the
-    // request record, so anything that lands here is already in-range.
+    // PUT-style update: every field on the request overwrites the stored value
+    // (including null, which clears it). The frontend always submits the full form
+    // state, so unchanged fields arrive at their current values. Validation ranges
+    // (height 50–300, weight 20–500) live on the request record, so any non-null
+    // value that lands here is already in-range.
     @Transactional
     public UserProfileDto updateMyProfile(User user, UserProfileUpdateRequest request) {
         UserProfile profile = userProfileRepository.findByUserId(user.getId())
@@ -53,16 +55,22 @@ public class UserService {
                     return userProfileRepository.save(new UserProfile(user));
                 });
 
-        if (request.bio() != null) profile.setBio(request.bio());
-        if (request.fitnessGoal() != null) profile.setFitnessGoal(request.fitnessGoal());
-        if (request.heightCm() != null) profile.setHeightCm(request.heightCm());
-        if (request.weightKg() != null) profile.setWeightKg(request.weightKg());
-        if (request.gender() != null) profile.setGender(request.gender());
+        profile.setBio(blankToNull(request.bio()));
+        profile.setFitnessGoal(blankToNull(request.fitnessGoal()));
+        profile.setHeightCm(request.heightCm());
+        profile.setWeightKg(request.weightKg());
+        profile.setGender(request.gender());
 
         // Profile mutations are dirty-checked on commit. Build the response from the
         // local user + profile we already hold — no reload, no lazy fetch.
         log.info("UserProfile updated for user {}", user.getUsername());
         return SocialMapper.toUserProfileDto(user, profile);
+    }
+
+    // Treats blank/whitespace-only strings as null so the user can clear a field by
+    // submitting an empty input. Storing "" or "   " would be confusing on read-back.
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 
     // Loads a User by id and throws 404 if missing — used by SocialService and PostService

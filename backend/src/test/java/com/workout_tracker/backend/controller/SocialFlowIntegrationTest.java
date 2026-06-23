@@ -187,27 +187,40 @@ class SocialFlowIntegrationTest {
     }
 
     @Test
-    void profileUpdate_blankFitnessGoal_returns400() throws Exception {
-        // Free-form text — but @Pattern rejects empty/whitespace-only so it can't be
-        // silently cleared by sending "" or "   ". Null still means "unchanged".
+    void profileUpdate_blankFitnessGoal_clearsField() throws Exception {
+        // PUT semantics: blank/whitespace-only strings normalize to null and clear the
+        // field. The user can wipe their fitnessGoal from the UI by emptying the input.
         String token = registerAndGetToken("blankgoal", "blankgoal@test.com", "password123");
 
+        // Set first so we have something to clear.
+        mockMvc.perform(put("/api/users/me/profile")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"fitnessGoal":"hypertrophy"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fitnessGoal").value("hypertrophy"));
+
+        // Then blank it and confirm it cleared.
         mockMvc.perform(put("/api/users/me/profile")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fitnessGoal":""}
                                 """))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors.fitnessGoal").exists());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fitnessGoal").value(org.hamcrest.Matchers.nullValue()));
 
+        // Whitespace-only behaves the same way.
         mockMvc.perform(put("/api/users/me/profile")
                         .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"fitnessGoal":"   "}
                                 """))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fitnessGoal").value(org.hamcrest.Matchers.nullValue()));
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

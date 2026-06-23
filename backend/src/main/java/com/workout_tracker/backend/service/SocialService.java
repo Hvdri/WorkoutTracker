@@ -68,4 +68,17 @@ public class SocialService {
                 .map(SocialMapper::toUserSummaryDto)
                 .toList();
     }
+
+    // Public-by-id variants used on /users/:id pages so anyone can see another user's
+    // social graph counts. Throws 404 if the user doesn't exist (consistent with
+    // /api/users/{id}/profile behavior).
+    @Transactional(readOnly = true)
+    public List<UserSummaryDto> getFollowingOf(Long userId) {
+        return getFollowing(userService.loadUser(userId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserSummaryDto> getFollowersOf(Long userId) {
+        return getFollowers(userService.loadUser(userId));
+    }
 }
