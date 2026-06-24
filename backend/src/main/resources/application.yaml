@@ -37,3 +37,19 @@ app:
     username: ${ADMIN_USERNAME:admin}
     email: ${ADMIN_EMAIL:admin@workouttracker.com}
     password: ${ADMIN_PASSWORD}
+  notification-service:
+    # Base URI for fire-and-forget calls to notification-service. In docker-compose
+    # this becomes http://notification-service:8082; bare localhost is the dev default.
+    uri: ${NOTIFICATION_SERVICE_URI:http://localhost:8082}
+
+# Resilience4j config for the NotificationClient — same shape as social-service's
+# main-app breaker. Notification calls are best-effort, so a tripped breaker just
+# means the user's completeLog succeeds without a notification being persisted.
+resilience4j:
+  circuitbreaker:
+    instances:
+      notification-service:
+        sliding-window-size: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+        permitted-number-of-calls-in-half-open-state: 2

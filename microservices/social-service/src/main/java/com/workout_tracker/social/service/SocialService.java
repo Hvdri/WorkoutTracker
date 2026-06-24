@@ -1,6 +1,7 @@
 package com.workout_tracker.social.service;
 
 import com.workout_tracker.social.client.MainAppClient;
+import com.workout_tracker.social.client.NotificationClient;
 import com.workout_tracker.social.dto.UserSummaryDto;
 import com.workout_tracker.social.exception.BusinessRuleViolationException;
 import com.workout_tracker.social.exception.ResourceNotFoundException;
@@ -23,9 +24,10 @@ public class SocialService {
 
     private final FollowRepository followRepository;
     private final MainAppClient mainAppClient;
+    private final NotificationClient notificationClient;
 
     @Transactional
-    public void follow(Long followerId, Long followedId) {
+    public void follow(Long followerId, String followerUsername, Long followedId) {
         if (followerId.equals(followedId)) {
             log.warn("User {} attempted to follow themselves", followerId);
             throw new BusinessRuleViolationException("You cannot follow yourself");
@@ -50,6 +52,10 @@ public class SocialService {
                 .followedId(followedId)
                 .build());
         log.info("User {} now follows {}", followerId, followedId);
+
+        // Best-effort notification to the followed user. Fire AFTER save so a
+        // breaker-open downstream can't block the follow itself.
+        notificationClient.notifyNewFollower(followedId, followerUsername);
     }
 
     @Transactional
@@ -87,6 +93,15 @@ public class SocialService {
     public List<Long> getFollowedUserIds(Long userId) {
         return followRepository.findByFollowerId(userId).stream()
                 .map(Follow::getFollowedId)
+                .toList();
+    }
+
+    // Used by PostService.createPost to fan out POST_CREATED notifications to every
+    // follower of the author.
+    @Transactional(readOnly = true)
+    public List<Long> getFollowerIds(Long userId) {
+        return followRepository.findByFollowedId(userId).stream()
+                .map(Follow::getFollowerId)
                 .toList();
     }
 }

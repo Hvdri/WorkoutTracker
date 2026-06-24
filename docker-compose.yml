@@ -37,6 +37,25 @@ services:
       timeout: 3s
       retries: 10
 
+  # MongoDB for notification-service — picks up NoSQL 4% in the grading bucket and
+  # matches the professor's lab7_start pattern (movie-events on Mongo). Runs on the
+  # standard 27017 so a local mongosh works without extra flags.
+  mongodb:
+    image: mongo:7
+    container_name: workouttracker-mongo
+    environment:
+      MONGO_INITDB_DATABASE: notifications
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   pgdata:
   pgdata-social:
+  mongodata:

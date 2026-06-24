@@ -27,7 +27,7 @@ public class SocialController {
     @PostMapping("/follow/{userId}")
     public ResponseEntity<Void> follow(@PathVariable Long userId,
                                        @AuthenticationPrincipal AuthenticatedUser current) {
-        socialService.follow(current.userId(), userId);
+        socialService.follow(current.userId(), current.username(), userId);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 

@@ -2,6 +2,7 @@ package com.workout_tracker.social.service;
 
 import com.workout_tracker.social.client.LogSummary;
 import com.workout_tracker.social.client.MainAppClient;
+import com.workout_tracker.social.client.NotificationClient;
 import com.workout_tracker.social.dto.CreatePostRequest;
 import com.workout_tracker.social.dto.PostDto;
 import com.workout_tracker.social.dto.UserSummaryDto;
@@ -29,13 +30,14 @@ public class PostService {
 
     private final PostRepository postRepository;
     private final MainAppClient mainAppClient;
+    private final NotificationClient notificationClient;
     private final SocialService socialService;
 
     // createPost CANNOT proceed on degraded MainAppClient data — we must know the log
     // status and owner authoritatively. If the breaker is open, surface 503 and let
     // the user retry.
     @Transactional
-    public PostDto createPost(Long currentUserId, CreatePostRequest request) {
+    public PostDto createPost(Long currentUserId, String currentUsername, CreatePostRequest request) {
         LogSummary logSummary = mainAppClient.getLogSummary(request.workoutLogId());
         if (logSummary == null) {
             throw ResourceNotFoundException.of("WorkoutLog", request.workoutLogId());
@@ -72,6 +74,18 @@ public class PostService {
         Post saved = postRepository.save(post);
         log.info("Post {} created by user {} for WorkoutLog {}",
                 saved.getId(), currentUserId, request.workoutLogId());
+
+        // Fan out POST_CREATED notifications to every follower of the author.
+        // Each call is wrapped in the notification-service circuit breaker — if any
+        // single fire blows up the breaker, the remaining followers in this round
+        // get fallbacked (logged). The post itself is already saved at this point,
+        // so a notification storm can't undo the create. For our scale (small
+        // demos) this loop is fine; production would batch via a single POST or a
+        // message broker (Kafka) per the prof's lab7_start pattern.
+        List<Long> followerIds = socialService.getFollowerIds(currentUserId);
+        for (Long followerId : followerIds) {
+            notificationClient.notifyPostCreated(followerId, currentUsername, saved.getWorkoutLogId());
+        }
 
         // Enrich for the response. Author lookup is best-effort — we just created the
         // post, the user definitely exists. If the breaker is open, "Unknown" leaks

@@ -272,20 +272,23 @@ hits its own paginated endpoint behind JWT auth.
 
 ## Microservices Architecture
 
-The social layer ships **twice**: once inside the monolith (for test continuity and as
-the original implementation) and once as an extracted **`social-service`** Spring Boot
-app that the frontend's Vite proxy routes to in dev. The microservice patterns follow
-the conventions in [`iuliabanu/awbd2026/product-hub`](https://github.com/iuliabanu/awbd2026/tree/main/product-hub),
+Three services share the API surface: the monolith, an extracted **`social-service`**
+(posts + follows on its own Postgres), and a **`notification-service`** (Mongo-backed,
+fired from the monolith on workout completion). The microservice patterns follow the
+conventions in [`iuliabanu/awbd2026/product-hub`](https://github.com/iuliabanu/awbd2026/tree/main/product-hub),
 adapted to our existing stack.
 
 ```mermaid
 flowchart LR
     Browser[Browser :5173<br/>React 19 SPA] -->|HTTP + JWT| Vite{{Vite dev proxy<br/>route by path}}
     Vite -->|"/api/social/*<br/>/api/posts/*<br/>/api/users/N/posts"| Social[social-service :8081]
+    Vite -->|"/api/notifications/*"| Notif[notification-service :8082]
     Vite -->|everything else| Mono[monolith :8080]
     Social -->|"/internal/users/N<br/>/internal/logs/N/summary<br/>RestClient + @CircuitBreaker"| Mono
+    Mono -->|"POST /internal/notifications<br/>RestClient + @CircuitBreaker<br/>(fire-and-forget on completeLog)"| Notif
     Social --> DBs[(PostgreSQL :5433<br/>social)]
     Mono --> DBm[(PostgreSQL :5432<br/>workouttracker)]
+    Notif --> DBn[(MongoDB :27017<br/>notifications)]
 ```
 
 ### What lives where
@@ -298,6 +301,9 @@ flowchart LR
 | `Follow`, `Post` entities + their schema | **social-service** |
 | `/api/social/**`, `/api/posts/**`, `/api/users/{id}/posts` (routed by Vite) | **social-service** |
 | `/internal/users/{id}`, `/internal/logs/{id}/summary` | monolith (for social-service to call back) |
+| `Notification` documents (MongoDB) | **notification-service** |
+| `/api/notifications/**` (list, unread-count, mark-read) | **notification-service** |
+| `/internal/notifications` (fired by monolith on `completeLog`) | **notification-service** |
 
 ### Severed JPA relationships
 
@@ -343,6 +349,12 @@ of inserting unverified rows.
 
 Live state visible at `GET /actuator/circuitbreakers` on the social-service.
 
+A **second circuit breaker** lives in the monolith for outbound calls to
+notification-service ([NotificationClient.java](backend/src/main/java/com/workout_tracker/backend/client/NotificationClient.java)).
+Notifications are fire-and-forget — when the breaker is open, completing a workout still
+succeeds, the fallback just logs the miss. This satisfies the spec's "Circuit Breaker
+for minimum 2 services" requirement.
+
 ### Cross-service authentication
 
 Both services share a single `JWT_SECRET` (Base64-encoded HMAC key). The monolith
@@ -362,10 +374,10 @@ No Eureka, no Spring Cloud Config — same choice as `product-hub`. The social-s
 finds the monolith via the `MAIN_APP_URI` env var (default `http://localhost:8080`
 in dev, `http://backend:8080` in docker-compose). Docker DNS is the registry.
 
-### Running both services locally
+### Running all services locally
 
 ```bash
-# Terminal 0 — both Postgres instances (monolith DB + social DB on a different port)
+# Terminal 0 — data stores (postgres × 2, mongodb)
 docker compose up -d
 
 # Terminal 1 — monolith (port 8080)
@@ -374,21 +386,26 @@ cd backend && ./gradlew bootRun
 # Terminal 2 — social-service (port 8081)
 cd microservices/social-service && ./gradlew bootRun
 
-# Terminal 3 — frontend (Vite on 5173, proxies to both)
+# Terminal 3 — notification-service (port 8082)
+cd microservices/notification-service && ./gradlew bootRun
+
+# Terminal 4 — frontend (Vite on 5173, proxies to all three backends)
 cd frontend && npm run dev
 ```
 
-Both backend services pick up `JWT_SECRET` from the same root-level `.env` file via
-their `bootRun` env-loader.
+All three backend services pick up `JWT_SECRET` from the same root-level `.env` file
+via their `bootRun` env-loader.
 
 ### Files of interest
 
 | File | What it does |
 |---|---|
-| [microservices/social-service/src/main/java/com/workout_tracker/social/client/MainAppClient.java](microservices/social-service/src/main/java/com/workout_tracker/social/client/MainAppClient.java) | `@CircuitBreaker` RestClient — the heart of the resilience pattern |
-| [microservices/social-service/src/main/java/com/workout_tracker/social/security/JwtAuthenticationFilter.java](microservices/social-service/src/main/java/com/workout_tracker/social/security/JwtAuthenticationFilter.java) | Validates the monolith-issued JWT independently |
+| [microservices/social-service/src/main/java/com/workout_tracker/social/client/MainAppClient.java](microservices/social-service/src/main/java/com/workout_tracker/social/client/MainAppClient.java) | social-service → monolith `@CircuitBreaker` RestClient |
+| [backend/src/main/java/com/workout_tracker/backend/client/NotificationClient.java](backend/src/main/java/com/workout_tracker/backend/client/NotificationClient.java) | monolith → notification-service fire-and-forget `@CircuitBreaker` client |
+| [microservices/notification-service/src/main/java/com/workout_tracker/notification/model/Notification.java](microservices/notification-service/src/main/java/com/workout_tracker/notification/model/Notification.java) | Mongo `@Document` — NoSQL backing for notifications |
+| [microservices/social-service/src/main/java/com/workout_tracker/social/security/JwtAuthenticationFilter.java](microservices/social-service/src/main/java/com/workout_tracker/social/security/JwtAuthenticationFilter.java) | Validates the monolith-issued JWT independently (mirrored in notification-service) |
 | [backend/src/main/java/com/workout_tracker/backend/controller/InternalController.java](backend/src/main/java/com/workout_tracker/backend/controller/InternalController.java) | `/internal/` projections the social-service calls into |
-| [frontend/vite.config.ts](frontend/vite.config.ts) | Path-based proxy split between the two backends |
+| [frontend/vite.config.ts](frontend/vite.config.ts) | Path-based proxy split between the three backends |
 
 ---
 

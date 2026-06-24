@@ -23,7 +23,7 @@ public class PostController {
     @PostMapping("/api/posts")
     public ResponseEntity<PostDto> createPost(@Valid @RequestBody CreatePostRequest request,
                                               @AuthenticationPrincipal AuthenticatedUser current) {
-        PostDto post = postService.createPost(current.userId(), request);
+        PostDto post = postService.createPost(current.userId(), current.username(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(post);
     }
 

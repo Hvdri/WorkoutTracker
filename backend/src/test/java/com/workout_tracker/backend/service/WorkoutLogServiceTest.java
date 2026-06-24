@@ -1,5 +1,6 @@
 package com.workout_tracker.backend.service;
 
+import com.workout_tracker.backend.client.NotificationClient;
 import com.workout_tracker.backend.dto.workout.CreateWorkoutLogRequest;
 import com.workout_tracker.backend.dto.workout.UpdateWorkoutLogRequest;
 import com.workout_tracker.backend.dto.workout.WorkoutLogDto;
@@ -35,6 +36,7 @@ class WorkoutLogServiceTest {
     @Mock WorkoutLogRepository workoutLogRepository;
     @Mock WorkoutSplitRepository splitRepository;
     @Mock WorkoutTemplateService templateService;
+    @Mock NotificationClient notificationClient;
 
     @InjectMocks WorkoutLogService workoutLogService;
 
