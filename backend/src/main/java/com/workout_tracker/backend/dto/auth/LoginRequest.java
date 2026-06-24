@@ -7,5 +7,11 @@ public record LoginRequest(
         String username,
 
         @NotBlank(message = "Password is required")
-        String password
+        String password,
+
+        // Optional. When true, the issued JWT uses the longer remember-me expiry
+        // (~30 days) so the user stays signed in across browser restarts. Null /
+        // false → standard 24h expiry. localStorage persistence is the same either
+        // way; only the token's exp claim changes.
+        Boolean rememberMe
 ) {}

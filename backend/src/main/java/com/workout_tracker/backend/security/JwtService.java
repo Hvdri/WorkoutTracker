@@ -46,17 +46,25 @@ public class JwtService {
     // Payload contains: subject (username), userId claim, roles claim, issued-at, expiration.
     // The userId claim lets downstream microservices (e.g. social-service) resolve the
     // caller without a username-to-id lookup against the user-database.
-    public String generateToken(UserDetails userDetails, Long userId) {
+    //
+    // rememberMe = true picks the longer expiry (default 30 days) so the user stays
+    // signed in across browser restarts. The localStorage persistence on the frontend
+    // is the same either way; only the JWT's exp claim changes.
+    public String generateToken(UserDetails userDetails, Long userId, boolean rememberMe) {
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .toList();
+
+        long expirationMs = rememberMe
+                ? jwtProperties.getRememberMeExpirationMs()
+                : jwtProperties.getExpirationMs();
 
         return Jwts.builder()
                 .subject(userDetails.getUsername())
                 .claim("userId", userId)
                 .claim("roles", roles)
                 .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + jwtProperties.getExpirationMs()))
+                .expiration(new Date(System.currentTimeMillis() + expirationMs))
                 .signWith(secretKey)
                 .compact();
     }

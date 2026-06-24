@@ -67,7 +67,8 @@ public class AuthService {
         log.info("New user registered: {}", user.getUsername());
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
-        String token = jwtService.generateToken(userDetails, user.getId());
+        // Registration always gets the standard expiry — no rememberMe at signup.
+        String token = jwtService.generateToken(userDetails, user.getId(), false);
 
         return new AuthResponse(token, user.getUsername(), List.of(Role.ROLE_USER));
     }
@@ -84,7 +85,10 @@ public class AuthService {
         User user = userRepository.findByUsername(request.username())
                 .orElseThrow(() -> new IllegalStateException(
                         "User vanished between auth and userId lookup: " + request.username()));
-        String token = jwtService.generateToken(userDetails, user.getId());
+        // Boolean is null-safe — request.rememberMe() can be null when the client
+        // omits the field; treat that as false.
+        boolean rememberMe = Boolean.TRUE.equals(request.rememberMe());
+        String token = jwtService.generateToken(userDetails, user.getId(), rememberMe);
 
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)

@@ -24,6 +24,10 @@ app:
   # so integration tests can log in as admin without env-var setup.
   admin:
     password: admin123
+  # Disable CSRF in tests so existing MockMvc-based integration tests don't have to
+  # carry an X-XSRF-TOKEN on every state-changing request. Dev and prod keep it on.
+  security:
+    csrf-enabled: false
 
 logging:
   level:

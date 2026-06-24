@@ -9,6 +9,7 @@ export function LoginPage() {
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -17,7 +18,9 @@ export function LoginPage() {
     setError(null)
     setIsSubmitting(true)
     try {
-      await login({ username, password })
+      // rememberMe gets forwarded to the backend; when true the issued JWT uses
+      // the longer remember-me expiry (~30 days) instead of the default 24h.
+      await login({ username, password, rememberMe })
       navigate('/')
     } catch (err) {
       setPassword('')
@@ -58,6 +61,16 @@ export function LoginPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={e => setRememberMe(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            Remember me
+          </label>
 
           {error && (
             <p role="alert" className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>

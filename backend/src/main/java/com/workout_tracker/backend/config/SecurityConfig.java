@@ -17,6 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -35,6 +36,12 @@ public class SecurityConfig {
     // Comma-separated origins from app.cors.allowed-origins (overridable via CORS_ALLOWED_ORIGINS env var)
     @Value("${app.cors.allowed-origins}")
     private String corsAllowedOrigins;
+
+    // Lets the test profile turn CSRF off so existing MockMvc tests don't need to
+    // attach a token on every POST/PUT/DELETE. Dev and prod keep it enabled. The
+    // application-test.yaml override sets this to false.
+    @Value("${app.security.csrf-enabled:true}")
+    private boolean csrfEnabled;
 
     @Bean
     PasswordEncoder passwordEncoder() {
@@ -70,8 +77,32 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            // CSRF disabled: we use stateless JWT auth — no session cookie to forge
-            .csrf(csrf -> csrf.disable())
+            // CSRF posture. JWT in the Authorization header isn't auto-sent by the
+            // browser, so a classic CSRF attack against this API is not exploitable
+            // — but the course spec asks for "CSRF protection activă" for maximum
+            // Spring Security credit, so we enable it here as defense-in-depth.
+            //
+            // CookieCsrfTokenRepository.withHttpOnlyFalse() writes the token to an
+            // XSRF-TOKEN cookie that the frontend's axios interceptor reads and
+            // echoes back as X-XSRF-TOKEN on state-changing requests. /api/auth/**
+            // is exempt because login/register can't carry a token yet; /internal/**
+            // is exempt because it's called server-to-server (no browser involved).
+            //
+            // Test profile flips csrfEnabled=false via application-test.yaml so the
+            // existing MockMvc suite keeps working without per-test csrf() builders.
+            .csrf(csrf -> {
+                if (csrfEnabled) {
+                    csrf
+                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .ignoringRequestMatchers(
+                            "/api/auth/**",
+                            "/internal/**",
+                            "/h2-console/**",
+                            "/actuator/**");
+                } else {
+                    csrf.disable();
+                }
+            })
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth

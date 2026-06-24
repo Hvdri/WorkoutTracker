@@ -23,4 +23,10 @@ public class JwtProperties {
 
     @Min(value = 60_000, message = "app.jwt.expiration-ms must be at least 60000 (1 minute).")
     private long expirationMs;
+
+    // Longer expiry used when the login request sets rememberMe=true. Default
+    // 30 days matches what most "stay signed in" checkboxes do in practice.
+    // Configurable via app.jwt.remember-me-expiration-ms.
+    @Min(value = 60_000, message = "app.jwt.remember-me-expiration-ms must be at least 60000 (1 minute).")
+    private long rememberMeExpirationMs = 30L * 24 * 60 * 60 * 1000;
 }

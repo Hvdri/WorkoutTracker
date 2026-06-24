@@ -10,8 +10,9 @@ A full-stack workout tracking application built with Spring Boot and React.
 
 ### Authentication & Authorization
 - Users can register with a unique username, email, and password
-- Users can log in and receive a JWT token valid for 24 hours
+- Users can log in and receive a JWT token (24h default, or 30 days when "Remember me" is checked)
 - All endpoints except exercise browsing and authentication require a valid JWT
+- CSRF protection is enabled on the monolith; the frontend automatically relays the `X-XSRF-TOKEN` header on state-changing requests
 - Two roles exist: `ROLE_USER` (default) and `ROLE_ADMIN`
 - Admins can create, update, and delete exercises; regular users cannot
 
@@ -176,10 +177,12 @@ flowchart LR
 
 Notable design choices:
 
-- **JWT** stateless auth (HMAC-SHA256, 24h expiry) — no server-side session state
+- **JWT** stateless auth (HMAC-SHA256). Default 24h expiry; **30 days** when the login request sets `rememberMe: true` (the "Remember me" checkbox on the login form). The longer expiry is the only difference — localStorage persistence is identical either way.
+- **CSRF protection** is on for state-changing requests (`POST/PUT/DELETE/PATCH`). Spring's `CookieCsrfTokenRepository.withHttpOnlyFalse()` sets an `XSRF-TOKEN` cookie; the frontend's axios interceptor reads it and echoes it back as `X-XSRF-TOKEN`. `/api/auth/**` and `/internal/**` are exempt — login can't carry a token yet, and `/internal/` is server-to-server. Disabled in the test profile so existing MockMvc tests don't have to attach tokens.
+- **BCrypt** for password storage (Spring's default strength)
 - **Service-layer business rules**: one-active-split, owner-only mutations, no self-follow — enforced before persistence, never relying on DB constraints alone
 - **DTOs** (Java records) at every controller boundary — entities are never serialized directly
-- **Pagination** on `/api/logs`, `/api/exercises`, `/api/social/feed`, `/api/users/{id}/posts`
+- **Pagination** on `/api/logs`, `/api/exercises`, `/api/social/feed`, `/api/social/discovery`, `/api/users/{id}/posts`, `/api/notifications`
 - **Custom exception hierarchy** mapped to HTTP status codes by `GlobalExceptionHandler`
 
 ---

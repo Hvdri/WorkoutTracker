@@ -35,19 +35,19 @@ class JwtServiceTest {
 
     @Test
     void generateToken_returnsNonBlankToken() {
-        String token = jwtService.generateToken(testUser, 1L);
+        String token = jwtService.generateToken(testUser, 1L, false);
         assertThat(token).isNotBlank();
     }
 
     @Test
     void extractUsername_returnsCorrectSubject() {
-        String token = jwtService.generateToken(testUser, 1L);
+        String token = jwtService.generateToken(testUser, 1L, false);
         assertThat(jwtService.extractUsername(token)).isEqualTo("alice");
     }
 
     @Test
     void isTokenValid_returnsTrueForValidToken() {
-        String token = jwtService.generateToken(testUser, 1L);
+        String token = jwtService.generateToken(testUser, 1L, false);
         assertThat(jwtService.isTokenValid(token, testUser)).isTrue();
     }
 
@@ -60,13 +60,13 @@ class JwtServiceTest {
         JwtService expiredService = new JwtService(expiredProps);
         expiredService.init();
 
-        String token = expiredService.generateToken(testUser, 1L);
+        String token = expiredService.generateToken(testUser, 1L, false);
         assertThat(expiredService.isTokenValid(token, testUser)).isFalse();
     }
 
     @Test
     void isTokenValid_returnsFalseForTamperedToken() {
-        String token = jwtService.generateToken(testUser, 1L);
+        String token = jwtService.generateToken(testUser, 1L, false);
         // Corrupt the signature (last segment after the second '.')
         String tampered = token.substring(0, token.length() - 4) + "XXXX";
         assertThat(jwtService.isTokenValid(tampered, testUser)).isFalse();
@@ -74,7 +74,7 @@ class JwtServiceTest {
 
     @Test
     void isTokenValid_returnsFalseForDifferentUser() {
-        String token = jwtService.generateToken(testUser, 1L);
+        String token = jwtService.generateToken(testUser, 1L, false);
 
         UserDetails otherUser = User.withUsername("bob")
                 .password("irrelevant")
