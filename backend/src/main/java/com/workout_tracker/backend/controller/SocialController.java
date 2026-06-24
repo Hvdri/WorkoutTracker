@@ -57,4 +57,12 @@ public class SocialController {
         return ResponseEntity.ok(PageResponse.of(
                 postService.getFeed(currentUserService.get(principal), pageable)));
     }
+
+    @GetMapping("/discovery")
+    public ResponseEntity<PageResponse<PostDto>> discovery(
+            @AuthenticationPrincipal UserDetails principal,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return ResponseEntity.ok(PageResponse.of(
+                postService.getDiscovery(currentUserService.get(principal), pageable)));
+    }
 }

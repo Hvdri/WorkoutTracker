@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: '/history', label: 'History' },
   { to: '/exercises', label: 'Exercises' },
   { to: '/feed', label: 'Feed' },
+  { to: '/discover', label: 'Discover' },
   { to: '/profile/me', label: 'Profile' },
 ]
 

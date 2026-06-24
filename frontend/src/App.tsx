@@ -14,6 +14,7 @@ import { NewWorkoutPage } from './pages/NewWorkoutPage'
 import { LogDetailPage } from './pages/LogDetailPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { FeedPage } from './pages/FeedPage'
+import { DiscoveryPage } from './pages/DiscoveryPage'
 import { UserProfilePage } from './pages/UserProfilePage'
 import { AdminExercisesPage } from './pages/AdminExercisesPage'
 import { NotFoundPage } from './pages/NotFoundPage'
@@ -49,6 +50,7 @@ const router = createBrowserRouter([
           { path: 'logs/:id', element: <LogDetailPage /> },
           { path: 'history', element: <HistoryPage /> },
           { path: 'feed', element: <FeedPage /> },
+          { path: 'discover', element: <DiscoveryPage /> },
           { path: 'users/:id', element: <UserProfilePage /> },
           {
             path: 'admin/exercises',

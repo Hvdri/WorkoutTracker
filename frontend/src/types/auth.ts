@@ -16,6 +16,7 @@ export interface AuthResponse {
 }
 
 export interface AuthUser {
+  userId: number
   username: string
   roles: string[]
 }

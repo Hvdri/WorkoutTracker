@@ -18,7 +18,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -90,6 +93,19 @@ public class PostService {
             return Page.empty(pageable);
         }
         return postRepository.findByUser_IdInOrderByCreatedAtDesc(followedIds, pageable)
+                .map(SocialMapper::toPostDto);
+    }
+
+    // Discovery = posts from anyone the user has NOT already followed, and excluding self.
+    // Counterpart to getFeed: feeds them the people they're not yet connected to,
+    // so they can find someone to follow without having a seed connection first.
+    @Transactional(readOnly = true)
+    public Page<PostDto> getDiscovery(User user, Pageable pageable) {
+        Set<Long> excluded = followRepository.findByFollower(user).stream()
+                .map(f -> f.getFollowed().getId())
+                .collect(Collectors.toCollection(HashSet::new));
+        excluded.add(user.getId());
+        return postRepository.findByUser_IdNotInOrderByCreatedAtDesc(excluded, pageable)
                 .map(SocialMapper::toPostDto);
     }
 

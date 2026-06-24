@@ -43,14 +43,17 @@ public class JwtService {
     }
 
     // Build a signed JWT for the given user.
-    // Payload contains: subject (username), roles claim, issued-at, expiration.
-    public String generateToken(UserDetails userDetails) {
+    // Payload contains: subject (username), userId claim, roles claim, issued-at, expiration.
+    // The userId claim lets downstream microservices (e.g. social-service) resolve the
+    // caller without a username-to-id lookup against the user-database.
+    public String generateToken(UserDetails userDetails, Long userId) {
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .toList();
 
         return Jwts.builder()
                 .subject(userDetails.getUsername())
+                .claim("userId", userId)
                 .claim("roles", roles)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + jwtProperties.getExpirationMs()))
