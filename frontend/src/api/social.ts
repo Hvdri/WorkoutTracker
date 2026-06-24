@@ -29,3 +29,10 @@ export async function getFeed(params: FeedParams = {}): Promise<PageResponse<Pos
   const response = await apiClient.get<PageResponse<PostDto>>('/social/feed', { params })
   return response.data
 }
+
+// Discovery feed: posts from anyone the current user does NOT already follow,
+// excluding their own posts. Used on /discover to find people worth following.
+export async function getDiscovery(params: FeedParams = {}): Promise<PageResponse<PostDto>> {
+  const response = await apiClient.get<PageResponse<PostDto>>('/social/discovery', { params })
+  return response.data
+}

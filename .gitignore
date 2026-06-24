@@ -12,6 +12,16 @@ backend/logs/
 !backend/**/src/main/**/build/
 !backend/**/src/test/**/build/
 
+# Microservices (Gradle / Spring Boot — same shape as backend/)
+microservices/**/.gradle/
+microservices/**/build/
+microservices/**/out/
+microservices/**/bin/
+microservices/**/logs/
+!microservices/**/gradle/wrapper/gradle-wrapper.jar
+!microservices/**/src/main/**/build/
+!microservices/**/src/test/**/build/
+
 # Frontend (Node / Vite)
 frontend/node_modules/
 frontend/dist/

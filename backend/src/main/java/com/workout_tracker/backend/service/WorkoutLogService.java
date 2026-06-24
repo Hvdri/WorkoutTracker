@@ -10,6 +10,7 @@ import com.workout_tracker.backend.model.WorkoutLog;
 import com.workout_tracker.backend.model.WorkoutSplit;
 import com.workout_tracker.backend.model.WorkoutTemplate;
 import com.workout_tracker.backend.model.enums.WorkoutStatus;
+import com.workout_tracker.backend.client.NotificationClient;
 import com.workout_tracker.backend.repository.WorkoutLogRepository;
 import com.workout_tracker.backend.repository.WorkoutSplitRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ public class WorkoutLogService {
     private final WorkoutLogRepository workoutLogRepository;
     private final WorkoutSplitRepository splitRepository;
     private final WorkoutTemplateService templateService;
+    private final NotificationClient notificationClient;
 
     // Business rule #2: a WorkoutLog must reference a WorkoutTemplate that belongs to
     // the user's currently active WorkoutSplit. Without an active split, no logging is allowed.
@@ -96,6 +98,12 @@ public class WorkoutLogService {
         WorkoutLog log_ = loadOwnedLog(id, user);
         log_.setStatus(WorkoutStatus.COMPLETED);
         log.info("WorkoutLog {} completed by user {}", id, user.getUsername());
+        // Fire-and-forget notification. The circuit breaker on NotificationClient
+        // means a downed notification-service can't fail completeLog — fallbacks
+        // just log the miss. We pull templateName inside the active transaction so
+        // there's no lazy-init surprise later.
+        notificationClient.notifyWorkoutCompleted(
+                user.getId(), log_.getId(), log_.getTemplate().getName());
         return WorkoutMapper.toWorkoutLogDto(log_);
     }
 

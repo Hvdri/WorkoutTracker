@@ -67,7 +67,7 @@ public class AuthService {
         log.info("New user registered: {}", user.getUsername());
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
-        String token = jwtService.generateToken(userDetails);
+        String token = jwtService.generateToken(userDetails, user.getId());
 
         return new AuthResponse(token, user.getUsername(), List.of(Role.ROLE_USER));
     }
@@ -80,7 +80,11 @@ public class AuthService {
                 new UsernamePasswordAuthenticationToken(request.username(), request.password()));
 
         UserDetails userDetails = userDetailsService.loadUserByUsername(request.username());
-        String token = jwtService.generateToken(userDetails);
+        // Resolve userId so the JWT can carry it for downstream microservices.
+        User user = userRepository.findByUsername(request.username())
+                .orElseThrow(() -> new IllegalStateException(
+                        "User vanished between auth and userId lookup: " + request.username()));
+        String token = jwtService.generateToken(userDetails, user.getId());
 
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)

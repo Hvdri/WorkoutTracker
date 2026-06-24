@@ -1,5 +1,6 @@
 plugins {
 	id 'java'
+	id 'jacoco'
 	id 'org.springframework.boot' version '4.0.3'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
@@ -33,6 +34,11 @@ dependencies {
 	implementation 'io.jsonwebtoken:jjwt-api:0.13.0'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.13.0'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.13.0'
+	// Resilience4j matches the version used by social-service and the prof's
+	// awbd2026/product-hub/product-api-app. Used here for the NotificationClient
+	// circuit breaker — fire-and-forget calls to notification-service must not
+	// take the monolith down if Mongo is unreachable.
+	implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.3.0'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.h2database:h2'
 	runtimeOnly 'org.postgresql:postgresql'
@@ -65,4 +71,28 @@ tasks.named('bootRun') {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	finalizedBy jacocoTestReport
+}
+
+jacoco {
+	toolVersion = "0.8.13"
+}
+
+jacocoTestReport {
+	dependsOn test
+	reports {
+		xml.required = true
+		html.required = true
+	}
+	afterEvaluate {
+		classDirectories.setFrom(files(classDirectories.files.collect {
+			fileTree(dir: it, exclude: [
+				'**/dto/**',
+				'**/model/**',
+				'**/config/**',
+				'**/exception/**',
+				'**/*Application*'
+			])
+		}))
+	}
 }

@@ -4,16 +4,22 @@ import type { AuthUser, AuthResponse, LoginRequest, RegisterRequest } from '../t
 import { STORAGE_KEYS } from '../constants/storage'
 import { AuthContext } from './AuthContext'
 
-// Decode the JWT payload and check the exp claim without verifying the signature.
-// We only use this to avoid showing the dashboard when the token is already expired.
+// Decode the JWT payload without verifying the signature. We use this to (a) check
+// the exp claim so we don't show the dashboard with an expired token, and (b) pull
+// out the userId claim that the backend embeds for downstream microservice consumption.
 // The backend always validates the signature — this is just a UX shortcut.
-function isTokenExpired(token: string): boolean {
+function decodeJwt(token: string): { exp?: number; userId?: number } | null {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
-    return typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
   } catch {
-    return true
+    return null
   }
+}
+
+function isTokenExpired(token: string): boolean {
+  const payload = decodeJwt(token)
+  if (!payload || typeof payload.exp !== 'number') return true
+  return payload.exp * 1000 < Date.now()
 }
 
 // Validate that a parsed object matches the AuthUser shape before trusting it.
@@ -21,6 +27,7 @@ function isValidAuthUser(obj: unknown): obj is AuthUser {
   return (
     typeof obj === 'object' &&
     obj !== null &&
+    typeof (obj as AuthUser).userId === 'number' &&
     typeof (obj as AuthUser).username === 'string' &&
     Array.isArray((obj as AuthUser).roles) &&
     (obj as AuthUser).roles.every(r => typeof r === 'string')
@@ -67,7 +74,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   function persistAuth(response: AuthResponse) {
-    const authUser: AuthUser = { username: response.username, roles: response.roles }
+    // userId lives in the JWT claim (added by the monolith's JwtService so the
+    // social-service can resolve the caller). If a token somehow lacks it — e.g. an
+    // older deploy hits a newer client — treat the session as invalid and bail out.
+    const payload = decodeJwt(response.token)
+    if (!payload || typeof payload.userId !== 'number') {
+      throw new Error('Auth token is missing the userId claim — please log in again')
+    }
+    const authUser: AuthUser = {
+      userId: payload.userId,
+      username: response.username,
+      roles: response.roles,
+    }
     localStorage.setItem(STORAGE_KEYS.TOKEN, response.token)
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(authUser))
     setUser(authUser)

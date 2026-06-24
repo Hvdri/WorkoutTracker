@@ -8,6 +8,7 @@ import { useAuth } from '../hooks/useAuth'
 import { getActiveSplit } from '../api/splits'
 import { listLogs } from '../api/workoutLogs'
 import { listFollowers, listFollowing } from '../api/social'
+import { getUserPosts } from '../api/profile'
 import type { WorkoutLogDto, WorkoutSplitDto } from '../types/workout'
 
 export function DashboardPage() {
@@ -16,23 +17,30 @@ export function DashboardPage() {
   const [recentLogs, setRecentLogs] = useState<WorkoutLogDto[]>([])
   const [followingCount, setFollowingCount] = useState<number | null>(null)
   const [followerCount, setFollowerCount] = useState<number | null>(null)
+  const [postCount, setPostCount] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    // user can't be null inside ProtectedRoute, but TS doesn't know that — guard for it.
+    if (!user) return
     Promise.all([
       getActiveSplit(),
       listLogs({ page: 0, size: 3, sort: 'date,desc' }),
       listFollowing(),
       listFollowers(),
+      // size=1 is the cheapest way to get a count: we only read `totalElements`.
+      // Goes through the Vite proxy to social-service.
+      getUserPosts(user.userId, { page: 0, size: 1 }),
     ])
-      .then(([s, logs, following, followers]) => {
+      .then(([s, logs, following, followers, posts]) => {
         if (cancelled) return
         setSplit(s)
         setRecentLogs(logs.content)
         setFollowingCount(following.length)
         setFollowerCount(followers.length)
+        setPostCount(posts.totalElements)
         setError(null)
       })
       .catch(() => {
@@ -94,7 +102,11 @@ export function DashboardPage() {
 
       <section className="bg-white rounded-2xl shadow p-4">
         <h2 className="font-semibold text-gray-800 mb-2">Social</h2>
-        <div className="flex gap-6 text-sm">
+        <div className="flex gap-6 text-sm flex-wrap">
+          <span>
+            <span className="text-2xl font-bold text-gray-800">{postCount ?? '—'}</span>{' '}
+            <span className="text-gray-500">{postCount === 1 ? 'post' : 'posts'}</span>
+          </span>
           <span>
             <span className="text-2xl font-bold text-gray-800">{followingCount ?? '—'}</span>{' '}
             <span className="text-gray-500">following</span>

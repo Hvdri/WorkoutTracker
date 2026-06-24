@@ -10,6 +10,52 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Separate Postgres instance for social-service — strict database-per-service
+  # boundary. The social-service has no JPA relationship to User or WorkoutLog;
+  # cross-domain data is resolved via MainAppClient (RestClient + Resilience4j
+  # circuit breaker) against the monolith's /internal/ endpoints.
+  postgres-social:
+    image: postgres:17-alpine
+    container_name: workouttracker-db-social
+    environment:
+      POSTGRES_DB: social
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata-social:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MongoDB for notification-service — picks up NoSQL 4% in the grading bucket and
+  # matches the professor's lab7_start pattern (movie-events on Mongo). Runs on the
+  # standard 27017 so a local mongosh works without extra flags.
+  mongodb:
+    image: mongo:7
+    container_name: workouttracker-mongo
+    environment:
+      MONGO_INITDB_DATABASE: notifications
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   pgdata:
+  pgdata-social:
+  mongodata:

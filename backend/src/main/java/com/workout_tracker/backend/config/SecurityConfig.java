@@ -78,6 +78,11 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
+                // /internal/** is for inter-service calls from social-service (and future
+                // notification-service). In production these would be reachable only from the
+                // internal Docker network; here we permit them unauthenticated. Do NOT expose
+                // /internal/ routes via any public-facing API gateway.
+                .requestMatchers("/internal/**").permitAll()
                 // We deliberately mix path-based and method-based enforcement here:
                 //   * Path-based (this block) opens specific public reads. New GETs stay private by default.
                 //   * Method-based (@AdminOnly / @PreAuthorize on controllers) restricts mutations.
