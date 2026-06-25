@@ -18,6 +18,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -64,9 +65,14 @@ public class SecurityConfig {
                 .map(String::trim)
                 .toList());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-        // Explicit headers — don't allow everything (*) unnecessarily
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
-        // No credentials (cookies) needed — auth is done via Authorization header with JWT
+        // Explicit headers — don't allow everything (*) unnecessarily. X-XSRF-TOKEN is
+        // listed so the frontend's CSRF token relay works under any CORS-treated path
+        // (the Vite same-origin proxy in dev doesn't trigger CORS, but a direct cross-
+        // origin call from a different gateway would).
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-XSRF-TOKEN"));
+        // Allow the browser to send the XSRF-TOKEN cookie alongside the request. Axios
+        // is configured with withCredentials: true; this is the server-side counterpart.
+        config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
@@ -77,23 +83,23 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            // CSRF posture. JWT in the Authorization header isn't auto-sent by the
-            // browser, so a classic CSRF attack against this API is not exploitable
-            // — but the course spec asks for "CSRF protection activă" for maximum
-            // Spring Security credit, so we enable it here as defense-in-depth.
-            //
-            // CookieCsrfTokenRepository.withHttpOnlyFalse() writes the token to an
-            // XSRF-TOKEN cookie that the frontend's axios interceptor reads and
-            // echoes back as X-XSRF-TOKEN on state-changing requests. /api/auth/**
-            // is exempt because login/register can't carry a token yet; /internal/**
-            // is exempt because it's called server-to-server (no browser involved).
-            //
-            // Test profile flips csrfEnabled=false via application-test.yaml so the
-            // existing MockMvc suite keeps working without per-test csrf() builders.
+
+            // CSRF posture. Two non-defaults are deliberate for SPA + JWT use:
+            //   1. CsrfTokenRequestAttributeHandler (non-XOR) — Spring 6's default is
+            //      XorCsrfTokenRequestAttributeHandler, which expects an XOR-masked
+            //      token in the header. The SPA reads the raw cookie value via JS, so
+            //      we use the non-XOR handler so cookie value == expected header value.
+            //   2. setCsrfRequestAttributeName(null) — forces eager loading of the
+            //      token on every request. Without this, Spring 6 lazy-loads the
+            //      token (only when something reads it), so the XSRF-TOKEN cookie
+            //      may never be set before the SPA's first state-changing POST.
             .csrf(csrf -> {
                 if (csrfEnabled) {
+                    CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
+                    csrfHandler.setCsrfRequestAttributeName(null);
                     csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRequestHandler(csrfHandler)
                         .ignoringRequestMatchers(
                             "/api/auth/**",
                             "/internal/**",
