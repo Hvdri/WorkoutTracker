@@ -40,9 +40,20 @@ A full-stack workout tracking application built with Spring Boot and React.
 
 ### Social Features
 - Users can follow and unfollow other users (a user cannot follow themselves)
-- Users can share a completed workout as a post with an optional caption
+- Users can share a completed workout as a post with an optional caption — accessible both from the **log detail page** and from a **"Share a workout" modal on the Feed page**
 - Users can view a paginated feed of posts from users they follow
 - Users can view another user's public posts and profile
+- **Discovery feed** (`/discover`) — paginated posts from users the current user does **not** yet follow, with an inline Follow button on each card. Once followed, those users' posts shift over to the Feed
+- The Dashboard's **Social block** shows the current user's post count alongside following / follower counts
+
+### Notifications
+- Each user has a notifications inbox (🔔 bell badge in the Navbar + `/notifications` page)
+- Three event types are emitted across services:
+  - `WORKOUT_COMPLETED` — fired by the monolith when the user completes a workout log
+  - `NEW_FOLLOWER` — fired by social-service when another user follows them
+  - `POST_CREATED` — fan-out by social-service to every follower when an author shares a post
+- Notifications are listed paginated, newest first. Users can mark individual notifications as read; an unread count refreshes on every route change
+- All cross-service notification fires are wrapped in Resilience4j circuit breakers — a downed notification-service never blocks the originating action
 
 ---
 
@@ -54,7 +65,7 @@ erDiagram
         bigint id PK
         varchar username UK
         varchar email UK
-        varchar passwordHash
+        varchar password
         boolean enabled
         timestamp createdAt
     }
@@ -79,7 +90,7 @@ erDiagram
         bigint id PK
         bigint user_id FK
         varchar name
-        boolean isActive
+        boolean active
         timestamp createdAt
     }
     WORKOUT_TEMPLATE {
@@ -158,20 +169,65 @@ erDiagram
     USER ||--o{ FOLLOW : "followed by"
 ```
 
+The diagram above is the **monolith's** schema on `postgres:5432`. After the microservices
+split, the same `Follow` and `Post` rows are *also* maintained on a second Postgres
+instance owned by `social-service` — with the JPA relationships severed. There, the
+`user_id` / `workout_log_id` / `follower_id` / `followed_id` columns are bare `bigint`s
+pointing at the monolith's `users` and `workout_logs` tables, with no foreign-key
+constraint (cross-database FKs aren't possible). Application-level integrity is
+restored by the social-service calling back to the monolith via `MainAppClient` before
+inserting a row.
+
+```mermaid
+erDiagram
+    FOLLOW_SOCIAL["social-service.follows"] {
+        bigint id PK
+        bigint follower_id "→ monolith.users.id (no FK)"
+        bigint followed_id "→ monolith.users.id (no FK)"
+        timestamp createdAt
+    }
+    POST_SOCIAL["social-service.posts"] {
+        bigint id PK
+        bigint user_id "→ monolith.users.id (no FK)"
+        bigint workout_log_id UK "→ monolith.workout_logs.id (no FK)"
+        varchar caption
+        timestamp createdAt
+    }
+```
+
+The `notification-service` stores documents in MongoDB (no relational schema):
+
+```mermaid
+erDiagram
+    NOTIFICATION["notifications collection (MongoDB)"] {
+        string id PK "ObjectId"
+        bigint userId "→ monolith.users.id (no FK)"
+        string type "WORKOUT_COMPLETED / NEW_FOLLOWER / POST_CREATED"
+        string message
+        bigint workoutLogId "nullable"
+        timestamp createdAt
+        boolean read
+    }
+```
+
 ---
 
 ## Architecture
 
-The application is a classic three-tier monolith with a JWT-secured REST API and an SPA client.
+This section describes the **per-service request layering** that every backend service
+follows (controller → service → repository, plus the JWT filter in front). For the
+**deployment-level** topology — three services, two Postgres instances, MongoDB,
+the Vite proxy, and the cross-service circuit breakers — see the
+[Microservices Architecture](#microservices-architecture) section further down.
 
 ```mermaid
 flowchart LR
-    Browser[Browser<br/>React 19 + Vite SPA] -->|HTTP + Bearer JWT| API[Spring Boot 4 REST API<br/>:8080]
-    API --> SEC[Spring Security<br/>JWT Filter]
+    Browser[Browser<br/>React 19 + Vite SPA] -->|HTTP + Bearer JWT + X-XSRF-TOKEN| API[Spring Boot 4 backend<br/>any of the three]
+    API --> SEC[Spring Security<br/>JWT Filter + CSRF]
     SEC --> CTRL[Controllers]
     CTRL --> SVC[Service layer<br/>business rules]
-    SVC --> REPO[Spring Data JPA repositories]
-    REPO --> DB[(PostgreSQL 17)]
+    SVC --> REPO[Spring Data repository]
+    REPO --> DB[(PostgreSQL or MongoDB)]
     SVC -.logs.-> LOGS[(logs/app.log<br/>logs/errors.log)]
 ```
 
@@ -192,6 +248,18 @@ Notable design choices:
 The social layer is a thin layer on top of the workout domain. It exists so users can
 share completed workouts and discover others' training. It deliberately has no comments,
 likes, or reactions — the goal is to surface *what people lifted*, not to be a feed app.
+
+> **Where the code lives.** The social domain ships in two places. The original
+> implementation in the monolith ([`backend/.../service/SocialService.java`](backend/src/main/java/com/workout_tracker/backend/service/SocialService.java)
+> + [`PostService.java`](backend/src/main/java/com/workout_tracker/backend/service/PostService.java))
+> is retained for the existing unit + integration test suite. The **production path** is
+> the extracted microservice at [`microservices/social-service/`](microservices/social-service/) —
+> the Vite proxy routes `/api/social/*`, `/api/posts/*`, and `/api/users/{id}/posts` to
+> port 8081, so the running app talks to the microservice for every social action. The
+> microservice has the same business rules, but its `Follow` and `Post` entities are
+> [severed](#severed-jpa-relationships) — bare `Long` ids instead of JPA refs to `User` /
+> `WorkoutLog`. The descriptions below apply to both copies; rule numbers and HTTP
+> status codes are identical.
 
 ### Two entities, two services
 
@@ -416,12 +484,14 @@ via their `bootRun` env-loader.
 
 | Layer | Technology |
 |---|---|
-| Backend | Spring Boot 4.0.3, Java 21 |
+| Backend (× 3 services) | Spring Boot 4.0.3, Java 21 |
+| Relational databases | PostgreSQL 17 (one per stateful service) |
+| Document store | MongoDB 7 (notification-service) |
+| Inter-service comms | Spring `RestClient` + Resilience4j 2.3.0 `@CircuitBreaker` |
+| Auth | Spring Security + JWT (jjwt 0.13.0), CSRF via `CookieCsrfTokenRepository`, BCrypt for passwords |
 | Frontend | React 19, TypeScript 5.9, Vite 8 |
-| Database | PostgreSQL 17 |
-| Auth | Spring Security + JWT (jjwt 0.13) |
 | Styling | Tailwind CSS v4 |
-| HTTP Client | Axios 1.13 |
+| HTTP client | Axios 1.13 (with XSRF token relay) |
 
 ---
 
@@ -462,24 +532,47 @@ Required variables (full list in `.env.example`):
 
 > `JWT_SECRET` has no default — the backend will refuse to start without it.
 
-### 3. Start the database
+### 3. Start the data stores
 
 ```bash
 docker compose up -d
 ```
 
-### 4. Start the backend
+Brings up:
+- `postgres:5432` — monolith DB (`workouttracker`)
+- `postgres:5433` — social-service DB (`social`)
+- `mongodb:27017` — notification-service collection (`notifications`)
+
+### 4. Start the three backend services
+
+Open three terminals. Each `bootRun` task auto-loads the root `.env`, so `JWT_SECRET`
+is picked up everywhere from one file.
 
 ```bash
-cd backend
-export $(cat ../.env | xargs) && ./gradlew bootRun
+# Terminal A — monolith
+cd backend && ./gradlew bootRun                              # :8080
+
+# Terminal B — social-service
+cd microservices/social-service && ./gradlew bootRun         # :8081
+
+# Terminal C — notification-service
+cd microservices/notification-service && ./gradlew bootRun   # :8082
 ```
 
-Backend runs on `http://localhost:8080`. Verify with:
+Verify each is up:
 
 ```bash
 curl http://localhost:8080/actuator/health
-# {"status":"UP"}
+curl http://localhost:8081/actuator/health
+curl http://localhost:8082/actuator/health
+# all → {"status":"UP",...}
+```
+
+You can also watch the circuit-breaker state with:
+
+```bash
+curl http://localhost:8081/actuator/circuitbreakers
+curl http://localhost:8080/actuator/circuitbreakers
 ```
 
 ### 5. Start the frontend
@@ -490,7 +583,10 @@ npm install
 npm run dev
 ```
 
-Frontend runs on `http://localhost:5173`. The Vite dev server proxies `/api/*` → `localhost:8080`.
+Frontend runs on `http://localhost:5173`. The Vite dev server proxies by path:
+`/api/social/*` and `/api/posts/*` and `/api/users/{id}/posts` → `:8081`,
+`/api/notifications/*` → `:8082`, everything else → `:8080`. See
+[frontend/vite.config.ts](frontend/vite.config.ts).
 
 ---
 
@@ -498,39 +594,68 @@ Frontend runs on `http://localhost:5173`. The Vite dev server proxies `/api/*` �
 
 ```
 WorkoutTracker/
-├── backend/
+├── backend/                                # Monolith (Spring Boot 4, :8080)
 │   └── src/main/java/com/workout_tracker/backend/
-│       ├── config/        # Security, CORS, beans
-│       ├── controller/    # REST controllers
-│       ├── dto/           # Request/response objects
-│       ├── exception/     # Global error handling
+│       ├── client/        # NotificationClient (@CircuitBreaker)
+│       ├── config/        # SecurityConfig (JWT, CSRF, CORS)
+│       ├── controller/    # REST + InternalController
+│       ├── dto/           # Request/response records
+│       ├── exception/     # GlobalExceptionHandler + custom exceptions
 │       ├── model/         # JPA entities
 │       ├── repository/    # Spring Data repositories
+│       ├── security/      # JwtService, JwtAuthenticationFilter
 │       └── service/       # Business logic
-├── frontend/
+├── microservices/
+│   ├── social-service/                     # Posts + Follows (Spring Boot 4, :8081)
+│   │   └── src/main/java/com/workout_tracker/social/
+│   │       ├── client/    # MainAppClient, NotificationClient (@CircuitBreaker)
+│   │       ├── config/    # SecurityConfig, RestClientConfig
+│   │       ├── controller/
+│   │       ├── dto/       # PostDto, CreatePostRequest, UserSummaryDto, PageResponse
+│   │       ├── exception/
+│   │       ├── model/     # Follow, Post (severed — bare Long ids)
+│   │       ├── repository/
+│   │       ├── security/  # JWT validation (shared secret with monolith)
+│   │       └── service/
+│   └── notification-service/               # MongoDB-backed (Spring Boot 4, :8082)
+│       └── src/main/java/com/workout_tracker/notification/
+│           ├── config/    # SecurityConfig
+│           ├── controller/# NotificationController + InternalNotificationController
+│           ├── dto/       # NotificationDto, CreateNotificationRequest, PageResponse
+│           ├── exception/
+│           ├── model/     # Notification (@Document for Mongo)
+│           ├── repository/# MongoRepository<Notification, String>
+│           ├── security/  # JWT validation (shared secret)
+│           └── service/
+├── frontend/                               # React 19 + Vite (:5173)
 │   └── src/
-│       ├── api/           # Axios instances & API calls
-│       ├── components/    # Reusable UI components
-│       ├── context/       # React context providers
-│       ├── hooks/         # Custom hooks
+│       ├── api/           # Axios client + per-domain API calls
+│       ├── components/    # Reusable UI + social + workout + layout
+│       ├── context/       # AuthContext + AuthProvider
+│       ├── hooks/         # useAuth, useQuery, useDebounce, usePagination
 │       ├── pages/         # Route-level components
-│       └── types/         # TypeScript interfaces
-├── docker-compose.yml     # PostgreSQL service
-└── .env                   # Local environment variables (not committed)
+│       └── types/         # TypeScript interfaces mirroring backend DTOs
+├── docs/                                   # ER diagram details, screenshots
+├── docker-compose.yml                      # postgres × 2 + mongodb
+└── .env                                    # Local env vars (not committed)
 ```
 
 ---
 
 ## Backend Dependencies
 
+Common across all three services unless noted.
+
 | Dependency | Purpose |
 |---|---|
 | `spring-boot-starter-webmvc` | REST API |
-| `spring-boot-starter-data-jpa` | ORM / database access |
+| `spring-boot-starter-data-jpa` | ORM / database access (monolith, social-service) |
+| `spring-boot-starter-data-mongodb` | Document store (notification-service only) |
 | `spring-boot-starter-security` | Authentication & authorization |
 | `spring-boot-starter-validation` | Request validation |
-| `spring-boot-starter-actuator` | Health & metrics endpoints |
-| `jjwt-api / impl / jackson` | JWT token handling |
+| `spring-boot-starter-actuator` | Health, metrics, circuit-breaker state |
+| `jjwt-api / impl / jackson` (0.13.0) | JWT token handling |
+| `resilience4j-spring-boot3` (2.3.0) | `@CircuitBreaker` for inter-service RestClient calls (monolith + social-service) |
 | `lombok` | Boilerplate reduction |
 | `postgresql` | Production database driver |
 | `h2` | In-memory database for tests |
@@ -550,40 +675,91 @@ WorkoutTracker/
 
 All endpoints are prefixed with `/api`. JWT required unless noted.
 
+A request hits the Vite dev proxy on `:5173`, which routes by path prefix:
+- `/api/social/*`, `/api/posts/*`, `/api/users/{id}/posts` → **social-service :8081**
+- `/api/notifications/*` → **notification-service :8082**
+- everything else → **monolith :8080**
+
+In production, the API Gateway plays the same role. JWT required unless noted.
+
+### Auth & Users (monolith)
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/register` | public | Create a user, returns JWT |
-| POST | `/auth/login` | public | Returns JWT |
+| POST | `/auth/register` | public | Create user, returns JWT |
+| POST | `/auth/login` | public | Returns JWT (accepts optional `rememberMe` → 30-day expiry) |
+| GET | `/ping` | user | Smoke test for the JWT filter |
 | GET | `/users/me/profile` | user | Current user's profile |
 | PUT | `/users/me/profile` | user | Update profile (height, weight, bio, goal, gender) |
-| GET | `/users/{id}/profile` | user | View any user's public profile |
-| GET | `/users/{id}/posts` | user | A user's posts (paginated) |
-| GET | `/exercises` | **public** | Catalog (paginated, sortable, filter by muscleGroup, search by name) |
+| GET | `/users/{id}/profile` | user | Any user's public profile |
+| GET | `/users/{id}/followers` | user | Followers of any user |
+| GET | `/users/{id}/following` | user | Who any user follows |
+
+### Exercises (monolith — public reads, admin writes)
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/exercises` | **public** | Catalog (paginated; `?search=`, `?muscleGroup=`, `?sort=name,asc`) |
 | GET | `/exercises/{id}` | **public** | Single exercise |
 | POST | `/exercises` | **admin** | Create exercise |
 | PUT | `/exercises/{id}` | **admin** | Update exercise |
 | DELETE | `/exercises/{id}` | **admin** | Delete exercise |
+
+### Splits & Templates (monolith)
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
 | GET | `/splits` | user | All splits for current user |
 | GET | `/splits/active` | user | Current active split (≤1) |
+| GET | `/splits/{id}` | user | One split with its templates |
 | POST | `/splits` | user | Create split |
 | PUT | `/splits/{id}/activate` | user | Activate (deactivates others) |
 | DELETE | `/splits/{id}` | user | Delete |
+| GET | `/splits/{splitId}/templates` | user | Templates for a split |
 | POST | `/splits/{splitId}/templates` | user | Add template to split |
+| DELETE | `/splits/{splitId}/templates/{templateId}` | user | Remove template |
 | POST | `/splits/{splitId}/templates/{templateId}/exercises` | user | Add exercise to template |
-| GET | `/logs` | user | History (paginated by date) |
+| DELETE | `/splits/{splitId}/templates/{templateId}/exercises/{exerciseTemplateId}` | user | Remove exercise from template |
+
+### Workout Logs (monolith)
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/logs` | user | History (paginated; `?sort=date,desc` default) |
 | POST | `/logs` | user | Start a workout log |
-| POST | `/logs/{id}/complete` | user | Mark workout completed |
-| POST | `/logs/{logId}/exercises` | user | Add exercise to log |
+| GET | `/logs/{id}` | user | One log with all exercise/set logs |
+| PUT | `/logs/{id}` | user | Update notes / photo URL |
+| DELETE | `/logs/{id}` | user | Delete log |
+| POST | `/logs/{id}/complete` | user | Mark completed → fires `WORKOUT_COMPLETED` notification |
+| GET | `/logs/{logId}/exercises` | user | Exercise logs for a workout log |
+| POST | `/logs/{logId}/exercises` | user | Add exercise log |
+| DELETE | `/logs/{logId}/exercises/{exerciseLogId}` | user | Remove exercise log |
 | POST | `/logs/{logId}/exercises/{exLogId}/sets` | user | Log a set (weight × reps + optional RPE) |
 | PUT | `/logs/{logId}/exercises/{exLogId}/sets/{setId}` | user | Update set |
-| POST | `/posts` | user | Share a completed log as a post |
-| POST | `/social/follow/{userId}` | user | Follow a user |
+| DELETE | `/logs/{logId}/exercises/{exLogId}/sets/{setId}` | user | Delete set |
+
+### Social (**social-service** — `/api/posts/*`, `/api/social/*`, `/api/users/{id}/posts`)
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/posts` | user | Share a completed log as a post → fans out `POST_CREATED` to all followers |
+| DELETE | `/posts/{id}` | user | Delete own post |
+| GET | `/users/{id}/posts` | user | A user's posts (paginated) |
+| POST | `/social/follow/{userId}` | user | Follow → fires `NEW_FOLLOWER` to the followed user |
 | DELETE | `/social/follow/{userId}` | user | Unfollow |
-| GET | `/social/feed` | user | Feed of posts from followed users (paginated) |
-| GET | `/social/discovery` | user | Posts from users you don't yet follow (paginated) |
-| GET | `/social/following` / `/followers` | user | Lists |
-| GET | `/internal/users/{id}` | (internal) | UserSummary for cross-service lookup — not on the gateway |
-| GET | `/internal/logs/{id}/summary` | (internal) | LogSummary (id, ownerId, status, templateName) for social-service post-creation gating |
+| GET | `/social/following` | user | Who I follow |
+| GET | `/social/followers` | user | Who follows me |
+| GET | `/social/feed` | user | Feed: posts from users I follow (paginated, newest first) |
+| GET | `/social/discovery` | user | Posts from users I don't yet follow (paginated) |
+
+### Notifications (**notification-service**)
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/notifications` | user | Current user's notifications (paginated, newest first) |
+| GET | `/notifications/unread-count` | user | `{ count: N }` — feeds the Navbar bell badge |
+| PUT | `/notifications/{id}/read` | user | Mark single notification as read |
+
+### Internal (cross-service only — never via the public proxy)
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/internal/users/{id}` | none | `UserSummaryDto{id, username, bio}` — called by social-service |
+| GET | `/internal/logs/{id}/summary` | none | `LogSummaryDto{id, ownerId, status, templateName}` — called by social-service before post creation |
+| POST | `/internal/notifications` | none | Inbound from monolith and social-service — creates a notification document |
 
 Error responses follow a consistent shape:
 ```json
@@ -607,12 +783,14 @@ Current coverage (excluding `dto/`, `model/`, `config/`, `exception/`):
 
 | Package | Line coverage |
 |---|---|
-| `service` | **85.8 %** |
-| `security` | **94.9 %** |
-| `controller` | 65.8 % |
-| **Overall** | **84.1 %** |
+| `service` | **84.6 %** |
+| `security` | **93.8 %** |
+| `client` (cross-service `@CircuitBreaker` calls) | 76.9 % |
+| `controller` | 56.2 % |
+| **Overall** | **81.4 %** |
 
 Suite: 104 tests across unit (Mockito) and integration (MockMvc + H2) levels — 0 failures.
+The `service/` package comfortably exceeds the spec's ≥70% target.
 
 ---
 
@@ -622,12 +800,18 @@ Available in [`docs/screenshots/`](docs/screenshots/):
 
 | File | Description |
 |---|---|
-| `login.png` | Login form |
-| `dashboard.png` | Dashboard with active split + recent history |
-| `new-workout.png` | Logging a workout with sets |
+| `login.png` | Login form (with the "Remember me" checkbox) |
+| `dashboard.png` | Dashboard with active split, recent history, and the post / following / followers Social block |
+| `split.png` | `split-1.png` | Creating a split with excercices |
+| `workout.png` | `workout-1.png` | Logging a workout with sets |
+| `exercises.png` | Full excercises list |
 | `history.png` | Paginated workout history |
 | `exercises.png` | Public exercise catalog with muscle-group filter |
-| `feed.png` | Social feed of followed users' posts |
+| `feed.png` | Social feed of followed users' posts (with the "Share a workout" button) |
+| `discover.png` | Discovery feed — posts from users not yet followed, inline Follow button |
+| `profile.png` | User profile page |
+| `notifications.png` | Notifications page with unread / read items + Navbar bell badge |
+
 
 ---
 
